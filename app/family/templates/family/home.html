@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>Семейное дерево</title>
+    {% if request.user.is_superuser or request.user.system_role == "SYSTEM_ADMIN" %}
+
+        <a href="{% url 'profiles:change_request_list' %}">
+            Запросы на изменения
+        </a>
+
+    {% endif %}
+
+    <div>
+        <a href="{% url 'family:my_profile' %}">
+            Мой профиль
+        </a>
+
+        <form
+            method="post"
+            action="{% url 'family:logout' %}"
+            style="display: inline;"
+        >
+            {% csrf_token %}
+
+            <button type="submit">
+                Выйти
+            </button>
+        </form>
+    </div>
+
+    <script
+        src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js">
+    </script>
+
+    <style>
+        body {
+            margin: 0;
+
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+
+            background: #fafafa;
+        }
+
+        header {
+            padding: 18px 30px;
+
+            background: white;
+
+            border-bottom: 1px solid #e5e5e5;
+        }
+
+        header h1 {
+            margin: 0;
+        }
+
+        header p {
+            margin: 6px 0 0;
+
+            color: #777;
+        }
+
+        #family-tree {
+            width: 100%;
+
+            height: calc(100vh - 90px);
+
+            background: white;
+        }
+
+        .warning {
+            margin: 15px 30px;
+
+            padding: 12px 16px;
+
+            border: 1px solid #ddd;
+
+            border-radius: 10px;
+
+            background: white;
+        }
+    </style>
+</head>
+
+
+<body>
+
+<header>
+
+    <h1>
+        Семейное дерево
+    </h1>
+
+    <p>
+        Нажмите на человека, чтобы открыть профиль
+    </p>
+
+    {% if request.user.is_staff %}
+
+        <p>
+            <a href="{% url 'accounts:create_invitation' %}">
+                ✉️ Пригласить родственника
+            </a>
+
+            ·
+
+            <a href="{% url 'accounts:invitation_list' %}">
+                📋 Управление приглашениями
+            </a>
+        </p>
+
+    {% endif %}
+
+</header>
+
+
+{% if generation_conflicts %}
+
+    <div class="warning">
+
+        ⚠ В некоторых родственных связях обнаружено
+        противоречие поколений.
+
+    </div>
+
+{% endif %}
+
+
+<div id="family-tree"></div>
+
+
+{{ nodes|json_script:"family-nodes" }}
+{{ edges|json_script:"family-edges" }}
+
+
+<script>
+    const nodesData =
+        JSON.parse(
+            document.getElementById(
+                "family-nodes"
+            ).textContent
+        );
+
+
+    const edgesData =
+        JSON.parse(
+            document.getElementById(
+                "family-edges"
+            ).textContent
+        );
+
+
+    const nodes =
+        new vis.DataSet(
+            nodesData
+        );
+
+
+    const edges =
+        new vis.DataSet(
+            edgesData.map(edge => {
+
+                if (edge.kind === "partner") {
+                    return {
+                        from: edge.from,
+                        to: edge.to,
+
+                        dashes: true,
+
+                        width: 2,
+
+                        smooth: false
+                    };
+                }
+
+
+                if (edge.kind === "parent") {
+                    return {
+                        from: edge.from,
+                        to: edge.to,
+
+                        arrows: {
+                            to: {
+                                enabled: false
+                            }
+                        },
+
+                        smooth: false
+                    };
+                }
+
+
+                return {
+                    from: edge.from,
+                    to: edge.to,
+
+                    smooth: false
+                };
+            })
+        );
+
+
+    const container =
+        document.getElementById(
+            "family-tree"
+        );
+
+
+    const data = {
+        nodes,
+        edges
+    };
+
+
+    const options = {
+
+        nodes: {
+            shape: "box",
+
+            margin: {
+                top: 12,
+                right: 16,
+                bottom: 12,
+                left: 16
+            },
+
+            font: {
+                size: 16
+            },
+
+            borderWidth: 1
+        },
+
+
+        edges: {
+            width: 1
+        },
+
+
+        layout: {
+            hierarchical: {
+                enabled: true,
+
+                direction: "UD",
+
+                levelSeparation: 150,
+
+                nodeSpacing: 180,
+
+                treeSpacing: 240,
+
+                sortMethod: "directed"
+            }
+        },
+
+
+        physics: false,
+
+
+        interaction: {
+            hover: true,
+
+            zoomView: true,
+
+            dragView: true,
+
+            navigationButtons: true
+        }
+    };
+
+
+    const network =
+        new vis.Network(
+            container,
+            data,
+            options
+        );
+
+
+    network.on(
+        "click",
+        function (params) {
+
+            if (
+                params.nodes.length !== 1
+            ) {
+                return;
+            }
+
+
+            const node =
+                nodes.get(
+                    params.nodes[0]
+                );
+
+
+            if (node.url) {
+                window.location.href =
+                    node.url;
+            }
+        }
+    );
+
+
+    network.fit();
+</script>
+
+</body>
+
+</html>

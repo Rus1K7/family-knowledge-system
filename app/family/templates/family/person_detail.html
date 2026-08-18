@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>{{ person }}</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #f5f5f7;
+
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .back {
+            display: inline-block;
+            margin-bottom: 20px;
+            text-decoration: none;
+        }
+
+        .header {
+            background: white;
+            border-radius: 18px;
+            padding: 30px;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+
+        .section {
+            background: white;
+            border-radius: 18px;
+
+            padding: 24px;
+            margin-bottom: 18px;
+        }
+
+        .section h2 {
+            margin-top: 0;
+        }
+
+        .relative {
+            display: block;
+
+            padding: 8px 0;
+
+            text-decoration: none;
+        }
+
+        .item {
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .item:last-child {
+            border-bottom: none;
+        }
+
+        .secondary {
+            color: #777;
+        }
+
+        .skills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .skill {
+            background: #f0f0f2;
+
+            padding: 7px 12px;
+
+            border-radius: 20px;
+        }
+
+        .add-relative {
+            display: inline-block;
+
+            margin-top: 15px;
+
+            text-decoration: none;
+        }
+    </style>
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <a
+        class="back"
+        href="{% url 'family:home' %}">
+        ← Семейное дерево
+    </a>
+
+
+    <div class="header">
+
+        <h1>
+            {{ person }}
+        </h1>
+
+        {% if person.birth_date %}
+
+            <div class="secondary">
+                Дата рождения:
+                {{ person.birth_date }}
+            </div>
+
+        {% endif %}
+
+        {% if can_manage %}
+
+            <p>
+                <a href="{% url 'privacy:access_request_list' %}">
+                    🔑 Запросы доступа
+
+                    {% if pending_access_requests_count %}
+                        ({{ pending_access_requests_count }})
+                    {% endif %}
+                </a>
+            </p>
+
+        {% endif %}
+
+
+        {% if request.user.is_staff %}
+
+            <a
+                class="add-relative"
+                href="{% url 'family:add_relative' person.id %}">
+                + Добавить родственника
+            </a>
+
+        {% endif %}
+
+    </div>
+
+
+    <div class="section">
+
+        <h2>
+            👪 Семья
+        </h2>
+
+
+        {% if parents %}
+
+            <h3>
+                Родители
+            </h3>
+
+            {% for relative in parents %}
+
+                <a
+                    class="relative"
+                    href="{% url 'family:person_detail' relative.id %}">
+                    {{ relative }}
+                </a>
+
+            {% endfor %}
+
+        {% endif %}
+
+
+        {% if spouses %}
+
+            <h3>
+                Супруг / партнёр
+            </h3>
+
+            {% for relative in spouses %}
+
+                <a
+                    class="relative"
+                    href="{% url 'family:person_detail' relative.id %}">
+                    {{ relative }}
+                </a>
+
+            {% endfor %}
+
+        {% endif %}
+
+
+        {% if children %}
+
+            <h3>
+                Дети
+            </h3>
+
+            {% for relative in children %}
+
+                <a
+                    class="relative"
+                    href="{% url 'family:person_detail' relative.id %}">
+                    {{ relative }}
+                </a>
+
+            {% endfor %}
+
+        {% endif %}
+
+
+        {% if siblings %}
+
+            <h3>
+                Братья / сёстры
+            </h3>
+
+            {% for relative in siblings %}
+
+                <a
+                    class="relative"
+                    href="{% url 'family:person_detail' relative.id %}">
+                    {{ relative }}
+                </a>
+
+            {% endfor %}
+
+        {% endif %}
+
+    </div>
+
+    <div class="section">
+
+        <h2>
+            📖 Биография
+        </h2>
+
+        {% if biography_item %}
+
+            {% if biography_item.locked %}
+
+                <div class="item">
+                    🔒 Биография скрыта
+
+                    {% if biography_item.requestable %}
+                        <p>
+                            <a href="{% url 'privacy:request_access' biography_item.policy.id %}">
+                                Запросить доступ
+                            </a>
+                        </p>
+                    {% endif %}
+                </div>
+
+            {% else %}
+
+                {% with biography=biography_item.object %}
+
+                    <div class="item">
+
+                        {{ biography.text|linebreaks }}
+
+
+                        {% if biography_item.source_links %}
+
+                            <h4>
+                                Источники
+                            </h4>
+
+                            {% for link in biography_item.source_links %}
+
+                                <div>
+
+                                    {% if link.source.source_type == "DOCUMENT" %}
+                                        📄
+                                    {% elif link.source.source_type == "PHOTO" %}
+                                        🖼
+                                    {% elif link.source.source_type == "ORAL" %}
+                                        🗣
+                                    {% elif link.source.source_type == "ARCHIVE" %}
+                                        🗄
+                                    {% else %}
+                                        📚
+                                    {% endif %}
+
+                                    <strong>
+                                        {{ link.source.title }}
+                                    </strong>
+
+                                    —
+                                    {{ link.get_relation_type_display }}
+
+                                    {% if link.source.author %}
+                                        <span class="secondary">
+                                            · {{ link.source.author }}
+                                        </span>
+                                    {% endif %}
+
+                                    {% if link.source.url %}
+                                        ·
+                                        <a
+                                            href="{{ link.source.url }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            открыть
+                                        </a>
+                                    {% endif %}
+
+
+                                    {% if can_manage %}
+
+                                        <form
+                                            method="post"
+                                            action="{% url 'heritage:detach_source' link.id %}"
+                                            style="display:inline;"
+                                        >
+                                            {% csrf_token %}
+
+                                            <button type="submit">
+                                                отвязать
+                                            </button>
+                                        </form>
+
+                                    {% endif %}
+
+                                </div>
+
+                            {% endfor %}
+
+                        {% endif %}
+
+
+                        {% if can_manage %}
+
+                            <p>
+                                <a href="{% url 'heritage:create_source_for_resource' 'BIOGRAPHY' biography.id %}">
+                                    + Новый источник
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'heritage:attach_existing_source' 'BIOGRAPHY' biography.id %}">
+                                    + Привязать существующий
+                                </a>
+                            </p>
+
+                            <p>
+                                <a href="{% url 'heritage:edit_biography' biography.id %}">
+                                    Редактировать
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'heritage:delete_biography' biography.id %}">
+                                    Запросить удаление
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'privacy:edit_privacy' 'BIOGRAPHY' biography.id %}">
+                                    🔐 Приватность
+                                </a>
+                            </p>
+
+                        {% endif %}
+
+                    </div>
+
+                {% endwith %}
+
+            {% endif %}
+
+
+        {% else %}
+
+            <div class="secondary">
+                Биография пока не добавлена.
+            </div>
+
+            {% if can_manage %}
+                <p>
+                    <a href="{% url 'heritage:add_biography' person.id %}">
+                        + Предложить биографию
+                    </a>
+                </p>
+            {% endif %}
+
+        {% endif %}
+
+    </div>
+
+    <div class="section">
+
+        <h2>
+            🕰 История жизни
+        </h2>
+
+
+        {% if can_manage %}
+            <p>
+                <a href="{% url 'heritage:add_life_event' person.id %}">
+                    + Предложить событие
+                </a>
+            </p>
+        {% endif %}
+
+
+        {% for item in life_event_items %}
+
+            {% if item.locked %}
+
+                <div class="item">
+
+                    🔒 Событие жизни скрыто
+
+                    {% if item.requestable %}
+                        <p>
+                            <a href="{% url 'privacy:request_access' item.policy.id %}">
+                                Запросить доступ
+                            </a>
+                        </p>
+                    {% endif %}
+
+                </div>
+
+            {% else %}
+
+                {% with event=item.object %}
+
+                    <div class="item">
+
+                        <strong>
+                            {{ event.title }}
+                        </strong>
+
+                        <div class="secondary">
+                            {{ event.get_event_type_display }}
+                        </div>
+
+
+                        {% if event.start_date %}
+
+                            <div>
+                                📅 {{ event.start_date }}
+
+                                {% if event.end_date %}
+                                    — {{ event.end_date }}
+                                {% endif %}
+                            </div>
+
+                        {% endif %}
+
+
+                        {% if event.place %}
+                            <div>
+                                📍 {{ event.place }}
+                            </div>
+                        {% endif %}
+
+
+                        {% if event.description %}
+                            <p>
+                                {{ event.description|linebreaks }}
+                            </p>
+                        {% endif %}
+
+
+                        {% if item.source_links %}
+
+                            <h4>
+                                Источники
+                            </h4>
+
+                            {% for link in item.source_links %}
+
+                                <div>
+
+                                    {% if link.source.source_type == "DOCUMENT" %}
+                                        📄
+                                    {% elif link.source.source_type == "PHOTO" %}
+                                        🖼
+                                    {% elif link.source.source_type == "ORAL" %}
+                                        🗣
+                                    {% elif link.source.source_type == "ARCHIVE" %}
+                                        🗄
+                                    {% else %}
+                                        📚
+                                    {% endif %}
+
+                                    <strong>
+                                        {{ link.source.title }}
+                                    </strong>
+
+                                    —
+                                    {{ link.get_relation_type_display }}
+
+                                    {% if link.source.author %}
+                                        <span class="secondary">
+                                            · {{ link.source.author }}
+                                        </span>
+                                    {% endif %}
+
+                                    {% if link.source.url %}
+                                        ·
+                                        <a
+                                            href="{{ link.source.url }}"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            открыть
+                                        </a>
+                                    {% endif %}
+
+
+                                    {% if can_manage %}
+
+                                        <form
+                                            method="post"
+                                            action="{% url 'heritage:detach_source' link.id %}"
+                                            style="display:inline;"
+                                        >
+                                            {% csrf_token %}
+
+                                            <button type="submit">
+                                                отвязать
+                                            </button>
+                                        </form>
+
+                                    {% endif %}
+
+                                </div>
+
+                            {% endfor %}
+
+                        {% endif %}
+
+
+                        {% if can_manage %}
+
+                            <p>
+                                <a href="{% url 'heritage:create_source_for_resource' 'LIFE_EVENT' event.id %}">
+                                    + Новый источник
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'heritage:attach_existing_source' 'LIFE_EVENT' event.id %}">
+                                    + Привязать существующий
+                                </a>
+                            </p>
+
+                            <p>
+                                <a href="{% url 'heritage:edit_life_event' event.id %}">
+                                    Редактировать
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'heritage:delete_life_event' event.id %}">
+                                    Запросить удаление
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'privacy:edit_privacy' 'LIFE_EVENT' event.id %}">
+                                    🔐 Приватность
+                                </a>
+                            </p>
+
+                        {% endif %}
+
+                    </div>
+
+                {% endwith %}
+
+            {% endif %}
+
+        {% empty %}
+
+            <div class="secondary">
+                События жизни пока не добавлены.
+            </div>
+
+        {% endfor %}
+
+    </div>
+    <div class="section">
+
+        <h2>
+            💼 Работа
+        </h2>
+
+
+
+            {% if can_manage %}
+                <p>
+                    <a href="{% url 'profiles:add_employment' person.id %}">
+                        + Предложить место работы
+                    </a>
+                </p>
+            {% endif %}
+
+
+     {% for item in employment_items %}
+
+        {% if item.locked %}
+
+            <div class="item">
+
+                🔒 Информация о месте работы скрыта
+
+                {% if item.requestable %}
+
+                    <p>
+                        <a href="{% url 'privacy:request_access' item.policy.id %}">
+                            Запросить доступ
+                        </a>
+                    </p>
+
+                {% endif %}
+
+            </div>
+
+        {% else %}
+
+            {% with employment=item.object %}
+
+                <div class="item">
+
+                    <strong>
+                        {{ employment.organization }}
+                    </strong>
+
+                    {% if employment.position %}
+                        <div>
+                            {{ employment.position }}
+                        </div>
+                    {% endif %}
+
+                    {% if employment.is_current %}
+                        <div class="secondary">
+                            Сейчас
+                        </div>
+                    {% endif %}
+
+                    {% if employment.description %}
+                        <p>
+                            {{ employment.description }}
+                        </p>
+                    {% endif %}
+
+
+                    {% if can_manage %}
+
+                        <p>
+                            <a href="{% url 'profiles:edit_employment' employment.id %}">
+                                Редактировать
+                            </a>
+
+                            ·
+
+                            <a href="{% url 'profiles:delete_employment' employment.id %}">
+                                Запросить удаление
+                            </a>
+
+                            ·
+
+                            <a href="{% url 'privacy:edit_privacy' 'EMPLOYMENT' employment.id %}">
+                                🔐 Приватность
+                            </a>
+                        </p>
+
+                    {% endif %}
+
+                </div>
+
+            {% endwith %}
+
+        {% endif %}
+
+    {% empty %}
+
+        <div class="secondary">
+            Информация пока не добавлена.
+        </div>
+
+    {% endfor %}
+
+    </div>
+
+
+
+    <div class="section">
+
+        <h2>
+            🎓 Образование
+        </h2>
+
+                {% if can_manage %}
+                    <p>
+                        <a href="{% url 'profiles:add_education' person.id %}">
+                            + Предложить образование
+                        </a>
+
+                    </p>
+                {% endif %}
+
+
+
+        {% for item in education_items %}
+
+        {% if item.locked %}
+
+            <div class="item">
+
+                🔒 Информация об образовании скрыта
+
+                {% if item.requestable %}
+                    <p>
+                        <a href="{% url 'privacy:request_access' item.policy.id %}">
+                            Запросить доступ
+                        </a>
+                    </p>
+                {% endif %}
+
+            </div>
+
+        {% else %}
+
+                {% with education=item.object %}
+
+                    <div class="item">
+
+                        <strong>
+                            {{ education.institution }}
+                        </strong>
+
+                        {% if education.degree %}
+                            <div>
+                                {{ education.degree }}
+                            </div>
+                        {% endif %}
+
+                        {% if education.field_of_study %}
+                            <div>
+                                {{ education.field_of_study }}
+                            </div>
+                        {% endif %}
+
+                        {% if can_manage %}
+
+                            <p>
+                                <a href="{% url 'profiles:edit_education' education.id %}">
+                                    Редактировать
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'profiles:delete_education' education.id %}">
+                                    Запросить удаление
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'privacy:edit_privacy' 'EDUCATION' education.id %}">
+                                    🔐 Приватность
+                                </a>
+                            </p>
+
+                        {% endif %}
+
+                    </div>
+
+                {% endwith %}
+
+            {% endif %}
+
+        {% empty %}
+
+            <div class="secondary">
+                Информация пока не добавлена.
+            </div>
+
+        {% endfor %}
+
+    </div>
+
+
+
+
+    <div class="section">
+
+        <h2>
+            🛠 Навыки
+        </h2>
+
+            {% if can_manage %}
+
+                <p>
+                    <a href="{% url 'profiles:add_skill' person.id %}">
+                        + Предложить навык
+                    </a>
+                </p>
+            {% endif %}
+        <div class="skills">
+
+            {% for item in skill_items %}
+
+                {% if item.locked %}
+
+                    <div class="skill">
+
+                        🔒 Скрытый навык
+
+                        {% if item.requestable %}
+                            <a href="{% url 'privacy:request_access' item.policy.id %}">
+                                Запросить доступ
+                            </a>
+                        {% endif %}
+
+                    </div>
+
+                {% else %}
+
+                    {% with skill=item.object %}
+
+                        <div class="skill">
+
+                            {{ skill.name }}
+
+                            {% if can_manage %}
+
+                                <a href="{% url 'profiles:edit_skill' skill.id %}">
+                                    ✎
+                                </a>
+
+                                <a href="{% url 'profiles:delete_skill' skill.id %}">
+                                    ×
+                                </a>
+
+                                <a href="{% url 'privacy:edit_privacy' 'SKILL' skill.id %}">
+                                    🔐
+                                </a>
+
+                            {% endif %}
+
+                        </div>
+
+                    {% endwith %}
+
+                {% endif %}
+
+            {% empty %}
+
+                <div class="secondary">
+                    Навыки пока не добавлены.
+                </div>
+
+            {% endfor %}
+
+        </div>
+
+
+    </div>
+    <div class="section">
+
+        <h2>
+            🤝 Могу помочь
+        </h2>
+        {% if can_manage %}
+            <p>
+                <a href="{% url 'network:add_help_offer' person.id %}">
+                    + Предложить помощь
+                </a>
+            </p>
+        {% endif %}
+
+
+        {% for item in help_offer_items %}
+
+            {% if item.locked %}
+
+                <div class="item">
+                    🔒 Предложение помощи скрыто
+                    {% if item.requestable %}
+                        <a href="{% url 'privacy:request_access' item.policy.id %}">
+                            Запросить доступ
+                        </a>
+                    {% endif %}
+                </div>
+
+            {% else %}
+
+                {% with offer=item.object %}
+
+                    <div class="item">
+
+                        <strong>
+                            {{ offer.title }}
+                        </strong>
+
+                        <div class="secondary">
+                            {{ offer.get_category_display }}
+                        </div>
+
+                        {% if offer.description %}
+                            <p>
+                                {{ offer.description }}
+                            </p>
+                        {% endif %}
+
+                        {% if can_manage %}
+
+                            <p>
+                                <a href="{% url 'network:edit_help_offer' offer.id %}">
+                                    Редактировать
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'network:delete_help_offer' offer.id %}">
+                                    Запросить удаление
+                                </a>
+
+                                ·
+
+                                <a href="{% url 'privacy:edit_privacy' 'HELP_OFFER' offer.id %}">
+                                    🔐 Приватность
+                                </a>
+                            </p>
+
+                        {% endif %}
+
+                    </div>
+
+                {% endwith %}
+
+            {% endif %}
+
+        {% empty %}
+
+            <div class="secondary">
+                Пока нет предложений помощи.
+            </div>
+
+        {% endfor %}
+
+    </div>
+
+</div>
+
+</body>
+
+</html>

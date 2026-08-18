@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Запросы доступа</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #f5f5f7;
+
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+        }
+
+        .container {
+            max-width: 850px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 18px;
+            padding: 24px;
+            margin-bottom: 18px;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 18px;
+        }
+
+        .actions form {
+            margin: 0;
+        }
+
+        button {
+            padding: 8px 12px;
+            cursor: pointer;
+        }
+
+        .secondary {
+            color: #777;
+        }
+    </style>
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <a href="{% url 'family:home' %}">
+        ← Семейное дерево
+    </a>
+
+    <h1>
+        🔑 Запросы доступа
+    </h1>
+
+
+    {% for item in items %}
+
+        {% with access_request=item.request %}
+
+            <div class="card">
+
+                <h2>
+                    {{ access_request.policy.get_resource_type_display }}
+                </h2>
+
+                <p>
+                    Профиль:
+                    <strong>
+                        {{ access_request.policy.person }}
+                    </strong>
+                </p>
+
+                <p>
+                    Запрашивает:
+                    <strong>
+                        {{ access_request.requester }}
+                    </strong>
+                </p>
+
+
+                {% if item.resource %}
+
+                    <p>
+                        Информация:
+                        <strong>
+                            {{ item.resource }}
+                        </strong>
+                    </p>
+
+                {% else %}
+
+                    <p class="secondary">
+                        Запись больше не существует.
+                    </p>
+
+                {% endif %}
+
+
+                {% if access_request.reason %}
+
+                    <p>
+                        Причина:
+                        {{ access_request.reason }}
+                    </p>
+
+                {% else %}
+
+                    <p class="secondary">
+                        Причина не указана.
+                    </p>
+
+                {% endif %}
+
+
+                <div class="secondary">
+                    Запрос создан:
+                    {{ access_request.created_at }}
+                </div>
+
+
+                <div class="actions">
+
+                    {% if item.resource %}
+
+                        <form
+                            method="post"
+                            action="{% url 'privacy:approve_access_request' access_request.id '24h' %}"
+                        >
+                            {% csrf_token %}
+
+                            <button type="submit">
+                                Разрешить на 24 часа
+                            </button>
+                        </form>
+
+
+                        <form
+                            method="post"
+                            action="{% url 'privacy:approve_access_request' access_request.id '7d' %}"
+                        >
+                            {% csrf_token %}
+
+                            <button type="submit">
+                                Разрешить на 7 дней
+                            </button>
+                        </form>
+
+
+                        <form
+                            method="post"
+                            action="{% url 'privacy:approve_access_request' access_request.id 'forever' %}"
+                        >
+                            {% csrf_token %}
+
+                            <button type="submit">
+                                Разрешить постоянно
+                            </button>
+                        </form>
+
+                    {% endif %}
+
+
+                    <form
+                        method="post"
+                        action="{% url 'privacy:reject_access_request' access_request.id %}"
+                    >
+                        {% csrf_token %}
+
+                        <button type="submit">
+                            Отклонить
+                        </button>
+                    </form>
+
+                </div>
+
+            </div>
+
+        {% endwith %}
+
+
+    {% empty %}
+
+        <div class="card">
+            Новых запросов доступа нет.
+        </div>
+
+    {% endfor %}
+
+</div>
+
+</body>
+
+</html>

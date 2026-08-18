@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Запросить доступ</title>
+</head>
+
+<body>
+
+<a href="{% url 'family:person_detail' person.id %}">
+    ← Назад
+</a>
+
+<h1>Запросить доступ</h1>
+
+<p>
+    Вы хотите запросить доступ к скрытой
+    информации профиля:
+    <strong>{{ person }}</strong>
+</p>
+
+<form method="post">
+
+    {% csrf_token %}
+
+    {{ form.as_p }}
+
+    <button type="submit">
+        Отправить запрос
+    </button>
+
+</form>
+
+</body>
+
+</html>

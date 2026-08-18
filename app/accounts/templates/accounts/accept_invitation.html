@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Принять приглашение</title>
+</head>
+
+<body>
+
+<h1>
+    Добро пожаловать
+</h1>
+
+<p>
+    Вы приглашены как:
+</p>
+
+<strong>
+    {{ invitation.person }}
+</strong>
+
+<p>
+    {{ invitation.email }}
+</p>
+
+<form method="post">
+
+    {% csrf_token %}
+
+    {{ form.as_p }}
+
+    <button type="submit">
+        Создать аккаунт
+    </button>
+
+</form>
+
+</body>
+
+</html>

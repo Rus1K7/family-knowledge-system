@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Приглашение создано</title>
+</head>
+
+<body>
+
+<h1>Приглашение создано</h1>
+
+<p>
+    Для:
+    <strong>
+        {{ invitation.person }}
+    </strong>
+</p>
+
+<p>
+    Email:
+    {{ invitation.email }}
+</p>
+
+<p>
+    Ссылка действует 7 дней:
+</p>
+
+<p>
+    <input
+        type="text"
+        value="{{ invitation_url }}"
+        readonly
+        style="width: 600px;"
+    >
+</p>
+
+<a href="{% url 'family:home' %}">
+    Вернуться к дереву
+</a>
+
+</body>
+
+</html>

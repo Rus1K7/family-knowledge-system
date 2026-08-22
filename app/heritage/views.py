@@ -9,6 +9,9 @@ from django.shortcuts import (
 from family.models import Person
 from family.permissions import can_manage_person
 from profiles.models import ProfileChangeRequest
+from privacy.models import PrivacyPolicy
+
+from django.http import FileResponse, Http404
 
 from .forms import (
     BiographyForm,
@@ -16,6 +19,7 @@ from .forms import (
     LifeEventForm,
     SourceCreateForm,
     VerificationForm,
+    MediaAssetUploadForm,
 )
 
 from .models import (
@@ -23,6 +27,7 @@ from .models import (
     LifeEvent,
     SourceLink,
     Verification,
+    MediaAsset,
 )
 
 from django.utils import timezone
@@ -30,6 +35,15 @@ from .permissions import can_verify_heritage
 
 from django.db import transaction
 from django.views.decorators.http import require_POST
+
+from family.permissions import (
+    can_manage_person,
+    is_system_admin,
+)
+from privacy.permissions import can_view_resource
+
+from audit.models import AuditEvent
+from audit.services import log_audit_event
 
 HERITAGE_RESOURCE_MODELS = {
     SourceLink.ResourceType.BIOGRAPHY: Biography,
@@ -669,6 +683,14 @@ def verify_resource(
 
             verification.save()
 
+            log_audit_event(
+                actor=request.user,
+                action=AuditEvent.Action.VERIFY_HERITAGE,
+                person=resource.person,
+                resource_type=resource_type,
+                object_id=resource.id,
+            )
+
             return redirect(
                 "family:person_detail",
                 person_id=resource.person.id,
@@ -688,4 +710,295 @@ def verify_resource(
             "person": resource.person,
             "verification": verification,
         },
+    )
+
+@login_required
+@transaction.atomic
+def upload_media_asset(request, person_id):
+    person = get_object_or_404(
+        Person,
+        id=person_id,
+    )
+
+    if not can_manage_person(
+        request.user,
+        person,
+    ):
+        raise PermissionDenied(
+            "У вас нет права добавлять файлы этому человеку."
+        )
+
+    if request.method == "POST":
+        form = MediaAssetUploadForm(
+            request.POST,
+            request.FILES,
+        )
+
+        if form.is_valid():
+            media_asset = form.save(
+                commit=False
+            )
+
+            media_asset.person = person
+            media_asset.uploaded_by = (
+                request.user
+            )
+
+            uploaded_file = (
+                form.cleaned_data["file"]
+            )
+
+            media_asset.original_filename = (
+                uploaded_file.name
+            )
+
+            media_asset.mime_type = (
+                getattr(
+                    uploaded_file,
+                    "content_type",
+                    "",
+                )
+            )
+
+            media_asset.file_size = (
+                uploaded_file.size
+            )
+
+            media_asset.status = (
+                MediaAsset.Status.PENDING
+            )
+
+            media_asset.save()
+
+            PrivacyPolicy.objects.get_or_create(
+                person=person,
+                resource_type=(
+                    PrivacyPolicy.ResourceType.MEDIA_ASSET
+                ),
+                object_id=media_asset.id,
+                defaults={
+                    "visibility":
+                        PrivacyPolicy.Visibility.FAMILY,
+                    "show_existence": True,
+                },
+            )
+
+            return redirect(
+                "family:person_detail",
+                person_id=person.id,
+            )
+
+    else:
+        form = MediaAssetUploadForm()
+
+    return render(
+        request,
+        "heritage/media_upload_form.html",
+        {
+            "form": form,
+            "person": person,
+        },
+    )
+
+@login_required
+def serve_media_asset(request, media_id):
+    media_asset = get_object_or_404(
+        MediaAsset.objects.select_related(
+            "person"
+        ),
+        id=media_id,
+    )
+
+    person = media_asset.person
+
+    can_manage = can_manage_person(
+        request.user,
+        person,
+    )
+
+    if (
+        media_asset.status
+        != MediaAsset.Status.APPROVED
+        and not can_manage
+        and not is_system_admin(request.user)
+    ):
+        raise Http404
+
+    if not can_manage and not is_system_admin(
+        request.user
+    ):
+        can_view = can_view_resource(
+            request.user,
+            person,
+            PrivacyPolicy.ResourceType.MEDIA_ASSET,
+            media_asset.id,
+        )
+
+        if not can_view:
+            raise Http404
+
+    if not media_asset.file:
+        raise Http404
+
+    storage = media_asset.file.storage
+
+    if not storage.exists(
+        media_asset.file.name
+    ):
+        raise Http404
+
+    file_handle = storage.open(
+        media_asset.file.name,
+        "rb",
+    )
+
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.VIEW_MEDIA,
+        person=person,
+        resource_type="MEDIA_ASSET",
+        object_id=media_asset.id,
+    )
+
+    as_attachment = (
+        media_asset.media_type
+        == MediaAsset.MediaType.DOCUMENT
+    )
+
+    return FileResponse(
+        file_handle,
+        as_attachment=as_attachment,
+        filename=(
+            media_asset.original_filename
+            or media_asset.file.name
+        ),
+        content_type=(
+            media_asset.mime_type
+            or "application/octet-stream"
+        ),
+    )
+
+@login_required
+def media_moderation_list(request):
+    if not is_system_admin(request.user):
+        raise PermissionDenied(
+            "Только системный администратор может проверять файлы."
+        )
+
+    pending_media = (
+        MediaAsset.objects
+        .filter(
+            status=MediaAsset.Status.PENDING
+        )
+        .select_related(
+            "person",
+            "uploaded_by",
+        )
+        .order_by("created_at")
+    )
+
+    return render(
+        request,
+        "heritage/media_moderation_list.html",
+        {
+            "pending_media": pending_media,
+        },
+    )
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def approve_media_asset(request, media_id):
+    if not is_system_admin(request.user):
+        raise PermissionDenied(
+            "Только системный администратор может проверять файлы."
+        )
+
+    media_asset = get_object_or_404(
+        MediaAsset.objects.select_for_update(),
+        id=media_id,
+    )
+
+    if media_asset.status == MediaAsset.Status.PENDING:
+        media_asset.status = (
+            MediaAsset.Status.APPROVED
+        )
+
+        media_asset.reviewed_by = (
+            request.user
+        )
+
+        media_asset.reviewed_at = (
+            timezone.now()
+        )
+
+        media_asset.save(
+            update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
+
+        log_audit_event(
+            actor=request.user,
+            action=AuditEvent.Action.APPROVE_MEDIA,
+            person=media_asset.person,
+            resource_type="MEDIA_ASSET",
+            object_id=media_asset.id,
+        )
+
+    return redirect(
+        "heritage:media_moderation_list"
+    )
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def reject_media_asset(request, media_id):
+    if not is_system_admin(request.user):
+        raise PermissionDenied(
+            "Только системный администратор может проверять файлы."
+        )
+
+    media_asset = get_object_or_404(
+        MediaAsset.objects.select_for_update(),
+        id=media_id,
+    )
+
+    if media_asset.status == MediaAsset.Status.PENDING:
+        media_asset.status = (
+            MediaAsset.Status.REJECTED
+        )
+
+        media_asset.reviewed_by = (
+            request.user
+        )
+
+        media_asset.reviewed_at = (
+            timezone.now()
+        )
+
+        media_asset.save(
+            update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
+
+        log_audit_event(
+            actor=request.user,
+            action=AuditEvent.Action.REJECT_MEDIA,
+            person=media_asset.person,
+            resource_type="MEDIA_ASSET",
+            object_id=media_asset.id,
+        )
+
+    return redirect(
+        "heritage:media_moderation_list"
     )

@@ -60,4 +60,31 @@ urlpatterns = [
         views.verify_resource,
         name="verify_resource",
     ),
+    path(
+        "person/<uuid:person_id>/media/upload/",
+        views.upload_media_asset,
+        name="upload_media_asset",
+    ),
+    path(
+        "media/<uuid:media_id>/file/",
+        views.serve_media_asset,
+        name="serve_media_asset",
+    ),
+    path(
+        "media/moderation/",
+        views.media_moderation_list,
+        name="media_moderation_list",
+    ),
+
+    path(
+        "media/<uuid:media_id>/approve/",
+        views.approve_media_asset,
+        name="approve_media_asset",
+    ),
+
+    path(
+        "media/<uuid:media_id>/reject/",
+        views.reject_media_asset,
+        name="reject_media_asset",
+    ),
 ]

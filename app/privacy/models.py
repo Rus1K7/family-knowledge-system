@@ -15,6 +15,7 @@ class PrivacyPolicy(models.Model):
         HELP_OFFER = "HELP_OFFER", _("Предложение помощи")
         BIOGRAPHY = "BIOGRAPHY", _("Биография")
         LIFE_EVENT = "LIFE_EVENT", _("Событие жизни")
+        MEDIA_ASSET = "MEDIA_ASSET", _("Фото / документ")
 
     class Visibility(models.TextChoices):
         FAMILY = "FAMILY", _("Вся семья")

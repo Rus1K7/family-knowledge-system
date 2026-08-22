@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>
+        Добавить фото или документ
+    </title>
+</head>
+
+<body>
+
+<a href="{% url 'family:person_detail' person.id %}">
+    ← Назад к профилю
+</a>
+
+<h1>
+    Добавить фото или документ
+</h1>
+
+<p>
+    Для:
+    <strong>{{ person }}</strong>
+</p>
+
+<p>
+    Разрешены JPG, PNG, WebP и PDF.
+    Максимальный размер — 20 МБ.
+</p>
+
+
+<form
+    method="post"
+    enctype="multipart/form-data"
+>
+
+    {% csrf_token %}
+
+    {{ form.as_p }}
+
+    <button type="submit">
+        Загрузить
+    </button>
+
+</form>
+
+</body>
+
+</html>

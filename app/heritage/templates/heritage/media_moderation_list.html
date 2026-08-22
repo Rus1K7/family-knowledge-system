@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>
+        Проверка файлов
+    </title>
+</head>
+
+<body>
+
+<a href="{% url 'family:home' %}">
+    ← Семейное дерево
+</a>
+
+
+<h1>
+    🗂 Файлы на проверке
+</h1>
+
+
+{% for media in pending_media %}
+
+    <div
+        style="
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 12px;
+        "
+    >
+
+        <h3>
+            {{ media.title }}
+        </h3>
+
+
+        <p>
+            <strong>Человек:</strong>
+            {{ media.person }}
+        </p>
+
+
+        <p>
+            <strong>Тип:</strong>
+            {{ media.get_media_type_display }}
+        </p>
+
+
+        {% if media.description %}
+            <p>
+                {{ media.description }}
+            </p>
+        {% endif %}
+
+
+        {% if media.original_filename %}
+            <p>
+                <strong>Файл:</strong>
+                {{ media.original_filename }}
+            </p>
+        {% endif %}
+
+
+        {% if media.uploaded_by %}
+            <p>
+                <strong>Загрузил:</strong>
+                {{ media.uploaded_by }}
+            </p>
+        {% endif %}
+
+
+        <p>
+            <a
+                href="{% url 'heritage:serve_media_asset' media.id %}"
+                target="_blank"
+            >
+                👁 Открыть файл
+            </a>
+        </p>
+
+
+        <form
+            method="post"
+            action="{% url 'heritage:approve_media_asset' media.id %}"
+            style="display:inline;"
+        >
+            {% csrf_token %}
+
+            <button type="submit">
+                ✅ Одобрить
+            </button>
+        </form>
+
+
+        <form
+            method="post"
+            action="{% url 'heritage:reject_media_asset' media.id %}"
+            style="display:inline;"
+        >
+            {% csrf_token %}
+
+            <button type="submit">
+                ❌ Отклонить
+            </button>
+        </form>
+
+    </div>
+
+
+{% empty %}
+
+    <p>
+        ✅ Файлов, ожидающих проверки, нет.
+    </p>
+
+{% endfor %}
+
+
+</body>
+
+</html>

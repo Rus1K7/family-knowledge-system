@@ -5,7 +5,8 @@ from .models import (
     LifeEvent,
     Source,
     SourceLink,
-    Verification
+    Verification,
+    MediaAsset,
 )
 
 @admin.register(Biography)
@@ -97,3 +98,33 @@ class VerificationAdmin(admin.ModelAdmin):
         "resource_type",
         "status",
     )
+
+    @admin.register(MediaAsset)
+    class MediaAssetAdmin(admin.ModelAdmin):
+        list_display = (
+            "title",
+            "person",
+            "media_type",
+            "status",
+            "uploaded_by",
+            "created_at",
+        )
+
+        list_filter = (
+            "media_type",
+            "status",
+        )
+
+        search_fields = (
+            "title",
+            "person__first_name",
+            "person__last_name",
+        )
+
+        readonly_fields = (
+            "original_filename",
+            "mime_type",
+            "file_size",
+            "created_at",
+            "updated_at",
+        )

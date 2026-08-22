@@ -696,6 +696,158 @@
         {% endfor %}
 
     </div>
+
+    <div class="section">
+
+        <h2>
+            🖼 Фото и документы
+        </h2>
+
+
+        {% if can_manage %}
+
+            <p>
+                <a href="{% url 'heritage:upload_media_asset' person.id %}">
+                    + Добавить фото или документ
+                </a>
+            </p>
+
+        {% endif %}
+
+
+        {% if can_admin %}
+
+            <p>
+                <a href="{% url 'heritage:media_moderation_list' %}">
+                    🗂 Проверить загруженные файлы
+                </a>
+            </p>
+
+        {% endif %}
+
+
+        {% for item in media_items %}
+
+            {% if item.locked %}
+
+                <div class="item">
+
+                    🔒 Фото или документ скрыт
+
+                    {% if item.requestable %}
+
+                        <p>
+                            <a href="{% url 'privacy:request_access' item.policy.id %}">
+                                Запросить доступ
+                            </a>
+                        </p>
+
+                    {% endif %}
+
+                </div>
+
+            {% else %}
+
+                {% with media=item.object %}
+
+                    <div class="item">
+
+                        <strong>
+                            {{ media.title }}
+                        </strong>
+
+
+                        <div class="secondary">
+                            {{ media.get_media_type_display }}
+                        </div>
+
+
+                        {% if media.status == "PENDING" %}
+
+                            <p>
+                                🟡 Ожидает проверки администратора
+                            </p>
+
+                        {% elif media.status == "REJECTED" %}
+
+                            <p>
+                                ❌ Файл отклонён
+                            </p>
+
+                        {% elif media.status == "APPROVED" %}
+
+                            <p>
+                                ✅ Одобрено
+                            </p>
+
+                        {% endif %}
+
+
+                        {% if media.description %}
+
+                            <p>
+                                {{ media.description }}
+                            </p>
+
+                        {% endif %}
+
+
+                        {% if media.media_type == "PHOTO" %}
+
+                            <p>
+                                <a
+                                    href="{% url 'heritage:serve_media_asset' media.id %}"
+                                    target="_blank"
+                                >
+                                    <img
+                                        src="{% url 'heritage:serve_media_asset' media.id %}"
+                                        alt="{{ media.title }}"
+                                        style="
+                                            max-width: 350px;
+                                            max-height: 300px;
+                                            border-radius: 12px;
+                                        "
+                                    >
+                                </a>
+                            </p>
+
+                        {% else %}
+
+                            <p>
+                                <a href="{% url 'heritage:serve_media_asset' media.id %}">
+                                    📄 Открыть документ
+                                </a>
+                            </p>
+
+                        {% endif %}
+
+
+                        {% if can_manage %}
+
+                            <p>
+                                <a href="{% url 'privacy:edit_privacy' 'MEDIA_ASSET' media.id %}">
+                                    🔐 Приватность
+                                </a>
+                            </p>
+
+                        {% endif %}
+
+                    </div>
+
+                {% endwith %}
+
+            {% endif %}
+
+
+        {% empty %}
+
+            <div class="secondary">
+                Фото и документы пока не добавлены.
+            </div>
+
+        {% endfor %}
+
+    </div>
     <div class="section">
 
         <h2>

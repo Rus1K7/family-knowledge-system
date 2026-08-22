@@ -35,3 +35,7 @@ htmlcov/
 # Misc
 *.swp
 *.tmp
+
+# Private family files
+private_media/
+app/private_media/

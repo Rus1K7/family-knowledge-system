@@ -27,6 +27,7 @@ from heritage.models import (
     Biography,
     SourceLink,
     Verification,
+    MediaAsset,
 )
 from heritage.permissions import (
     can_verify_heritage,
@@ -342,6 +343,7 @@ def person_detail(request, person_id):
     help_offer_items = []
     biography_item = None
     life_event_items = []
+    media_items = []
 
     for employment in person.employments.all():
         can_view = can_view_resource(
@@ -711,6 +713,68 @@ def person_detail(request, person_id):
                 }
             )
 
+            # -----------------------------
+            # MEDIA
+            # -----------------------------
+
+            for media_asset in (
+                    person.media_assets
+                            .all()
+                            .order_by("-created_at")
+            ):
+
+                # Неодобренные файлы видит только
+                # владелец профиля или администратор.
+                if (
+                        media_asset.status
+                        != MediaAsset.Status.APPROVED
+                        and not can_manage
+                ):
+                    continue
+
+                can_view = can_view_resource(
+                    request.user,
+                    person,
+                    PrivacyPolicy.ResourceType.MEDIA_ASSET,
+                    media_asset.id,
+                )
+
+                show_existence = (
+                    can_see_resource_existence(
+                        request.user,
+                        person,
+                        PrivacyPolicy.ResourceType.MEDIA_ASSET,
+                        media_asset.id,
+                    )
+                )
+
+                policy = get_policy(
+                    PrivacyPolicy.ResourceType.MEDIA_ASSET,
+                    media_asset.id,
+                )
+
+                if can_view:
+                    media_items.append(
+                        {
+                            "object": media_asset,
+                            "locked": False,
+                        }
+                    )
+
+                elif show_existence:
+                    media_items.append(
+                        {
+                            "object": media_asset,
+                            "locked": True,
+                            "policy": policy,
+                            "requestable": (
+                                    policy is not None
+                                    and policy.visibility
+                                    == PrivacyPolicy.Visibility.REQUEST_ONLY
+                            ),
+                        }
+                    )
+
 
     return render(
         request,
@@ -730,10 +794,12 @@ def person_detail(request, person_id):
 
             "biography_item": biography_item,
             "life_event_items": life_event_items,
+            "media_items": media_items,
 
             "can_manage": can_manage,
             "pending_access_requests_count": pending_access_requests_count,
             "can_verify": can_verify,
+            "can_admin": is_system_admin(request.user),
         },
     )
 

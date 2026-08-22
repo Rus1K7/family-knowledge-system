@@ -1,9 +1,11 @@
 import uuid
+from pathlib import Path
 
 from django.conf import settings
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from .storage import private_media_storage
 from family.models import Person
 
 
@@ -383,6 +385,8 @@ class Verification(models.Model):
         auto_now=True,
     )
 
+
+
     class Meta:
         verbose_name = _("Проверка достоверности")
         verbose_name_plural = _("Проверки достоверности")
@@ -402,3 +406,125 @@ class Verification(models.Model):
             f"{self.get_resource_type_display()} — "
             f"{self.get_status_display()}"
         )
+
+def private_media_upload_path(instance, filename):
+    extension = Path(filename).suffix.lower()
+
+    return (
+        f"persons/{instance.person_id}/"
+        f"{instance.media_type.lower()}/"
+        f"{instance.id}{extension}"
+    )
+
+class MediaAsset(models.Model):
+    class MediaType(models.TextChoices):
+        PHOTO = "PHOTO", _("Фотография")
+        DOCUMENT = "DOCUMENT", _("Документ")
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", _("Ожидает проверки")
+        APPROVED = "APPROVED", _("Одобрено")
+        REJECTED = "REJECTED", _("Отклонено")
+        ARCHIVED = "ARCHIVED", _("Архивировано")
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    person = models.ForeignKey(
+        "family.Person",
+        on_delete=models.CASCADE,
+        related_name="media_assets",
+        verbose_name=_("Человек"),
+    )
+
+    media_type = models.CharField(
+        _("Тип"),
+        max_length=20,
+        choices=MediaType.choices,
+    )
+
+    title = models.CharField(
+        _("Название"),
+        max_length=255,
+    )
+
+    description = models.TextField(
+        _("Описание"),
+        blank=True,
+    )
+
+    file = models.FileField(
+        _("Файл"),
+        storage=private_media_storage,
+        upload_to=private_media_upload_path,
+        max_length=255,
+    )
+
+    original_filename = models.CharField(
+        _("Исходное имя файла"),
+        max_length=255,
+        blank=True,
+    )
+
+    mime_type = models.CharField(
+        _("MIME-тип"),
+        max_length=100,
+        blank=True,
+    )
+
+    file_size = models.PositiveBigIntegerField(
+        _("Размер файла"),
+        null=True,
+        blank=True,
+    )
+
+    status = models.CharField(
+        _("Статус"),
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="uploaded_family_media",
+        verbose_name=_("Загрузил"),
+    )
+
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_family_media",
+        verbose_name=_("Проверил"),
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    reviewed_at = models.DateTimeField(
+        _("Дата проверки"),
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        verbose_name = _("Семейный файл")
+        verbose_name_plural = _("Семейные файлы")
+        ordering = [
+            "-created_at",
+        ]
+
+    def __str__(self):
+        return f"{self.get_media_type_display()}: {self.title}"

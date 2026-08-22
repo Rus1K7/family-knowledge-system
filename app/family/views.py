@@ -26,6 +26,10 @@ from privacy.permissions import (
 from heritage.models import (
     Biography,
     SourceLink,
+    Verification,
+)
+from heritage.permissions import (
+    can_verify_heritage,
 )
 
 def build_generation_levels(persons, relationships):
@@ -223,6 +227,9 @@ def person_detail(request, person_id):
     person = get_object_or_404(
         Person,
         id=person_id,
+    )
+    can_verify = can_verify_heritage(
+        request.user
     )
 
     relationships_from = list(
@@ -497,68 +504,158 @@ def person_detail(request, person_id):
                     "locked": True,
                     "policy": policy,
                     "requestable": (
-                            policy is not None
-                            and policy.visibility
-                            == PrivacyPolicy.Visibility.REQUEST_ONLY
+                        policy is not None
+                        and policy.visibility
+                        == PrivacyPolicy.Visibility.REQUEST_ONLY
                     ),
                 }
             )
 
-        biography = (
-            Biography.objects
-            .filter(person=person)
+
+    # -----------------------------
+    # BIOGRAPHY
+    # -----------------------------
+
+    biography = (
+        Biography.objects
+        .filter(person=person)
+        .first()
+    )
+
+    if biography is not None:
+        can_view = can_view_resource(
+            request.user,
+            person,
+            PrivacyPolicy.ResourceType.BIOGRAPHY,
+            biography.id,
+        )
+
+        show_existence = can_see_resource_existence(
+            request.user,
+            person,
+            PrivacyPolicy.ResourceType.BIOGRAPHY,
+            biography.id,
+        )
+
+        policy = get_policy(
+            PrivacyPolicy.ResourceType.BIOGRAPHY,
+            biography.id,
+        )
+
+        source_links = list(
+            SourceLink.objects
+            .filter(
+                resource_type=(
+                    SourceLink.ResourceType.BIOGRAPHY
+                ),
+                object_id=biography.id,
+            )
+            .select_related("source")
+        )
+
+        verification = (
+            Verification.objects
+            .filter(
+                resource_type=(
+                    Verification.ResourceType.BIOGRAPHY
+                ),
+                object_id=biography.id,
+            )
+            .select_related("reviewed_by")
             .first()
         )
 
-        if biography is not None:
-            can_view = can_view_resource(
-                request.user,
-                person,
-                PrivacyPolicy.ResourceType.BIOGRAPHY,
-                biography.id,
-            )
+        if can_view:
+            biography_item = {
+                "object": biography,
+                "locked": False,
+                "source_links": source_links,
+                "verification": verification,
+            }
 
-            show_existence = can_see_resource_existence(
-                request.user,
-                person,
-                PrivacyPolicy.ResourceType.BIOGRAPHY,
-                biography.id,
-            )
+        elif show_existence:
+            biography_item = {
+                "object": biography,
+                "locked": True,
+                "policy": policy,
+                "requestable": (
+                    policy is not None
+                    and policy.visibility
+                    == PrivacyPolicy.Visibility.REQUEST_ONLY
+                ),
+            }
 
-            policy = get_policy(
-                PrivacyPolicy.ResourceType.BIOGRAPHY,
-                biography.id,
-            )
 
-            source_links = list(
-                SourceLink.objects
-                .filter(
-                    resource_type=(
-                        SourceLink.ResourceType.BIOGRAPHY
-                    ),
-                    object_id=biography.id,
-                )
-                .select_related("source")
-            )
+    # -----------------------------
+    # LIFE EVENTS
+    # -----------------------------
 
-            if can_view:
-                biography_item = {
-                    "object": biography,
+    for event in person.life_events.all():
+        can_view = can_view_resource(
+            request.user,
+            person,
+            PrivacyPolicy.ResourceType.LIFE_EVENT,
+            event.id,
+        )
+
+        show_existence = can_see_resource_existence(
+            request.user,
+            person,
+            PrivacyPolicy.ResourceType.LIFE_EVENT,
+            event.id,
+        )
+
+        policy = get_policy(
+            PrivacyPolicy.ResourceType.LIFE_EVENT,
+            event.id,
+        )
+
+        source_links = list(
+            SourceLink.objects
+            .filter(
+                resource_type=(
+                    SourceLink.ResourceType.LIFE_EVENT
+                ),
+                object_id=event.id,
+            )
+            .select_related("source")
+        )
+
+        verification = (
+            Verification.objects
+            .filter(
+                resource_type=(
+                    Verification.ResourceType.LIFE_EVENT
+                ),
+                object_id=event.id,
+            )
+            .select_related("reviewed_by")
+            .first()
+        )
+
+        if can_view:
+            life_event_items.append(
+                {
+                    "object": event,
                     "locked": False,
                     "source_links": source_links,
+                    "verification": verification,
                 }
+            )
 
-            elif show_existence:
-                biography_item = {
-                    "object": biography,
+        elif show_existence:
+            life_event_items.append(
+                {
+                    "object": event,
                     "locked": True,
                     "policy": policy,
                     "requestable": (
-                            policy is not None
-                            and policy.visibility
-                            == PrivacyPolicy.Visibility.REQUEST_ONLY
+                        policy is not None
+                        and policy.visibility
+                        == PrivacyPolicy.Visibility.REQUEST_ONLY
                     ),
                 }
+            )
 
     for event in person.life_events.all():
         can_view = can_view_resource(
@@ -636,6 +733,7 @@ def person_detail(request, person_id):
 
             "can_manage": can_manage,
             "pending_access_requests_count": pending_access_requests_count,
+            "can_verify": can_verify,
         },
     )
 

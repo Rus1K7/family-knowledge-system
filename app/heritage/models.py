@@ -318,3 +318,87 @@ class SourceLink(models.Model):
             f"{self.source} → "
             f"{self.get_resource_type_display()}"
         )
+
+class Verification(models.Model):
+    class ResourceType(models.TextChoices):
+        BIOGRAPHY = "BIOGRAPHY", _("Биография")
+        LIFE_EVENT = "LIFE_EVENT", _("Событие жизни")
+
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", _("Черновик")
+        PENDING = "PENDING", _("Ожидает проверки")
+        VERIFIED = "VERIFIED", _("Подтверждено")
+        REJECTED = "REJECTED", _("Отклонено")
+        DISPUTED = "DISPUTED", _("Спорное")
+        ARCHIVED = "ARCHIVED", _("Архивировано")
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+    )
+
+    resource_type = models.CharField(
+        _("Тип объекта"),
+        max_length=30,
+        choices=ResourceType.choices,
+    )
+
+    object_id = models.UUIDField(
+        _("ID объекта"),
+    )
+
+    status = models.CharField(
+        _("Статус"),
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="heritage_verifications",
+        verbose_name=_("Проверил"),
+    )
+
+    comment = models.TextField(
+        _("Комментарий"),
+        blank=True,
+    )
+
+    reviewed_at = models.DateTimeField(
+        _("Дата проверки"),
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        verbose_name = _("Проверка достоверности")
+        verbose_name_plural = _("Проверки достоверности")
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "resource_type",
+                    "object_id",
+                ],
+                name="unique_heritage_verification",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.get_resource_type_display()} — "
+            f"{self.get_status_display()}"
+        )

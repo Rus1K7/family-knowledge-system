@@ -5,6 +5,7 @@ from .models import (
     LifeEvent,
     Source,
     SourceLink,
+    Verification,
 )
 
 class BiographyForm(forms.ModelForm):
@@ -113,3 +114,20 @@ class ExistingSourceLinkForm(forms.Form):
             attrs={"rows": 3}
         ),
     )
+
+class VerificationForm(forms.ModelForm):
+    class Meta:
+        model = Verification
+
+        fields = [
+            "status",
+            "comment",
+        ]
+
+        widgets = {
+            "comment": forms.Textarea(
+                attrs={
+                    "rows": 4,
+                }
+            ),
+        }

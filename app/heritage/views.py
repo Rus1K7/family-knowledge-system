@@ -15,12 +15,19 @@ from .forms import (
     ExistingSourceLinkForm,
     LifeEventForm,
     SourceCreateForm,
+    VerificationForm,
 )
+
 from .models import (
     Biography,
     LifeEvent,
     SourceLink,
+    Verification,
 )
+
+from django.utils import timezone
+from .permissions import can_verify_heritage
+
 from django.db import transaction
 from django.views.decorators.http import require_POST
 
@@ -609,4 +616,76 @@ def detach_source(
     return redirect(
         "family:person_detail",
         person_id=person_id,
+    )
+
+@login_required
+@transaction.atomic
+def verify_resource(
+    request,
+    resource_type,
+    object_id,
+):
+    resource = get_heritage_resource(
+        resource_type,
+        object_id,
+    )
+
+    if not can_verify_heritage(
+        request.user
+    ):
+        raise PermissionDenied(
+            "У вас нет права проверять исторические данные."
+        )
+
+    verification, created = (
+        Verification.objects.get_or_create(
+            resource_type=resource_type,
+            object_id=resource.id,
+            defaults={
+                "status":
+                    Verification.Status.PENDING,
+            },
+        )
+    )
+
+    if request.method == "POST":
+        form = VerificationForm(
+            request.POST,
+            instance=verification,
+        )
+
+        if form.is_valid():
+            verification = form.save(
+                commit=False
+            )
+
+            verification.reviewed_by = (
+                request.user
+            )
+
+            verification.reviewed_at = (
+                timezone.now()
+            )
+
+            verification.save()
+
+            return redirect(
+                "family:person_detail",
+                person_id=resource.person.id,
+            )
+
+    else:
+        form = VerificationForm(
+            instance=verification
+        )
+
+    return render(
+        request,
+        "heritage/verification_form.html",
+        {
+            "form": form,
+            "resource": resource,
+            "person": resource.person,
+            "verification": verification,
+        },
     )

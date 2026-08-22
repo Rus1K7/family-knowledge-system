@@ -5,6 +5,7 @@ from .models import (
     LifeEvent,
     Source,
     SourceLink,
+    Verification
 )
 
 @admin.register(Biography)
@@ -80,4 +81,19 @@ class SourceLinkAdmin(admin.ModelAdmin):
     list_filter = (
         "resource_type",
         "relation_type",
+    )
+
+@admin.register(Verification)
+class VerificationAdmin(admin.ModelAdmin):
+    list_display = (
+        "resource_type",
+        "object_id",
+        "status",
+        "reviewed_by",
+        "reviewed_at",
+    )
+
+    list_filter = (
+        "resource_type",
+        "status",
     )

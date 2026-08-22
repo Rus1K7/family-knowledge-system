@@ -55,4 +55,9 @@ urlpatterns = [
         views.detach_source,
         name="detach_source",
     ),
+    path(
+        "verify/<str:resource_type>/<uuid:object_id>/",
+        views.verify_resource,
+        name="verify_resource",
+    ),
 ]

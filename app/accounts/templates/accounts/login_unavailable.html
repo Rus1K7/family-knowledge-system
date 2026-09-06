@@ -1,0 +1,25 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <title>Вход временно ограничен</title>
+</head>
+<body>
+<main class="container">
+    <section class="card" aria-labelledby="login-title">
+        {% if temporarily_unavailable %}
+            <h1 id="login-title">Вход временно недоступен</h1>
+            <p>Не удалось проверить возможность входа. Попробуйте через минуту.</p>
+        {% else %}
+            <h1 id="login-title">Слишком много попыток входа</h1>
+            <p>Для защиты аккаунтов вход с этого подключения временно ограничен.</p>
+            <p>Повторите попытку через {{ retry_minutes }} мин. Дополнительные попытки сейчас не помогут войти.</p>
+        {% endif %}
+        <p><a href="{{ login_path }}">Вернуться к форме входа</a></p>
+    </section>
+</main>
+</body>
+</html>

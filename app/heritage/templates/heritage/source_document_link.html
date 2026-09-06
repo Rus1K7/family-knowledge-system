@@ -1,0 +1,5 @@
+{% if link.can_open_document %}
+    · <a href="{% url 'heritage:serve_media_asset' link.source.document_id %}">
+        📄 Открыть документ
+    </a>
+{% endif %}

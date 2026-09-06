@@ -1,17 +1,23 @@
 from datetime import timedelta
+import logging
 
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.core.mail import send_mail
+from django.db import IntegrityError, transaction
 from django.shortcuts import (
     get_object_or_404,
     redirect,
     render,
 )
+from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
-from family.models import ProfileOwnership
+from audit.models import AuditEvent
+from audit.services import log_audit_event
+from family.models import Person, ProfileOwnership
 from family.permissions import is_system_admin
 
 from .forms import (
@@ -20,12 +26,35 @@ from .forms import (
 )
 from .models import Invitation
 
-from django.urls import reverse
-from django.views.decorators.http import require_POST
-
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+def send_invitation_email(invitation, invitation_url):
+    try:
+        send_mail(
+            subject="Приглашение в семейное пространство",
+            message=(
+                f"Здравствуйте! Вас приглашают "
+                f"присоединиться к семейному профилю "
+                f"{invitation.person}.\n\n"
+                f"Откройте ссылку для регистрации:\n"
+                f"{invitation_url}\n\n"
+                "Ссылка действует 7 дней."
+            ),
+            from_email=None,
+            recipient_list=[invitation.email],
+            fail_silently=False,
+        )
+    except Exception:
+        logger.exception(
+            "Не удалось отправить приглашение по email: invitation_id=%s",
+            invitation.id,
+        )
+
 
 @login_required
+@transaction.atomic
 def create_invitation(request):
     if not is_system_admin(
         request.user
@@ -42,34 +71,110 @@ def create_invitation(request):
                 commit=False
             )
 
-            invitation.created_by = (
-                request.user
+            person = get_object_or_404(
+                Person.objects.select_for_update(),
+                id=invitation.person_id,
             )
 
-            invitation.expires_at = (
-                timezone.now()
-                + timedelta(days=7)
-            )
-
-            invitation.save()
-
-            invitation_url = (
-                request.build_absolute_uri(
-                    f"/family/invite/"
-                    f"{invitation.token}/"
+            already_owned = (
+                ProfileOwnership.objects
+                .filter(
+                    person=person,
+                    status=(
+                        ProfileOwnership.Status.CONFIRMED
+                    ),
                 )
+                .exists()
             )
 
-            return render(
-                request,
-                "accounts/invitation_created.html",
-                {
-                    "invitation":
-                        invitation,
-                    "invitation_url":
-                        invitation_url,
-                },
+            pending_invitation = (
+                Invitation.objects
+                .filter(
+                    person=person,
+                    status=Invitation.Status.PENDING,
+                    expires_at__gt=timezone.now(),
+                )
+                .exists()
             )
+
+            email_is_used = User.objects.filter(
+                email__iexact=invitation.email,
+            ).exists()
+
+            if already_owned:
+                form.add_error(
+                    "person",
+                    "У этого человека уже есть аккаунт.",
+                )
+
+            elif pending_invitation:
+                form.add_error(
+                    "person",
+                    "Для этого человека уже создано "
+                    "активное приглашение.",
+                )
+
+            elif email_is_used:
+                form.add_error(
+                    "email",
+                    "Пользователь с таким email уже существует.",
+                )
+
+            else:
+                invitation.person = person
+
+                invitation.created_by = (
+                    request.user
+                )
+
+                invitation.expires_at = (
+                    timezone.now()
+                    + timedelta(days=7)
+                )
+
+                invitation.save()
+
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.CREATE_INVITATION,
+                    person=invitation.person,
+                    resource_type="INVITATION",
+                    object_id=invitation.id,
+                    details={
+                        "invitation_id": str(invitation.id),
+                        "email": invitation.email,
+                        "expires_at": (
+                            invitation.expires_at.isoformat()
+                        ),
+                    },
+                )
+
+                invitation_url = (
+                    request.build_absolute_uri(
+                        reverse(
+                            "accounts:accept_invitation",
+                            args=[invitation.token],
+                        )
+                    )
+                )
+
+                transaction.on_commit(
+                    lambda: send_invitation_email(
+                        invitation,
+                        invitation_url,
+                    )
+                )
+
+                return render(
+                    request,
+                    "accounts/invitation_created.html",
+                    {
+                        "invitation":
+                            invitation,
+                        "invitation_url":
+                            invitation_url,
+                    },
+                )
 
     else:
         form = InvitationCreateForm()
@@ -81,6 +186,7 @@ def create_invitation(request):
             "form": form,
         },
     )
+
 
 def accept_invitation(
     request,
@@ -105,21 +211,27 @@ def accept_invitation(
 
     if request.method == "POST":
         form = InvitationAcceptForm(
-            request.POST
+            request.POST,
+            email=invitation.email,
         )
 
         if form.is_valid():
 
             with transaction.atomic():
 
+                person = get_object_or_404(
+                    Person.objects.select_for_update(),
+                    id=invitation.person_id,
+                )
+
                 invitation = (
                     Invitation.objects
                     .select_for_update()
-                    .select_related("person")
                     .get(
                         id=invitation.id
                     )
                 )
+                invitation.person = person
 
                 if not invitation.is_valid():
                     return render(
@@ -135,7 +247,7 @@ def accept_invitation(
                 already_owned = (
                     ProfileOwnership.objects
                     .filter(
-                        person=invitation.person,
+                        person=person,
                         status=ProfileOwnership.Status.CONFIRMED,
                     )
                     .exists()
@@ -152,9 +264,13 @@ def accept_invitation(
 
                 # Проверяем, не зарегистрирован ли уже
                 # пользователь с этим email.
-                if User.objects.filter(
-                        email=invitation.email
-                ).exists():
+                if (
+                    User.objects
+                    .filter(
+                        email__iexact=invitation.email,
+                    )
+                    .exists()
+                ):
                     return render(
                         request,
                         "accounts/invitation_invalid.html",
@@ -164,23 +280,34 @@ def accept_invitation(
                     )
 
                 # Только теперь создаём пользователя.
-                user = User.objects.create_user(
-                    username=form.cleaned_data[
-                        "username"
-                    ],
-                    email=invitation.email,
-                    password=form.cleaned_data[
-                        "password1"
-                    ],
-                    status=User.Status.ACTIVE,
-                    system_role=(
-                        User.SystemRole.FAMILY_MEMBER
-                    ),
-                )
+                try:
+                    with transaction.atomic():
+                        user = User.objects.create_user(
+                            username=form.cleaned_data[
+                                "username"
+                            ],
+                            email=invitation.email,
+                            password=form.cleaned_data[
+                                "password1"
+                            ],
+                            status=User.Status.ACTIVE,
+                            system_role=(
+                                User.SystemRole.FAMILY_MEMBER
+                            ),
+                        )
+
+                except IntegrityError:
+                    return render(
+                        request,
+                        "accounts/invitation_invalid.html",
+                        {
+                            "invitation": invitation,
+                        },
+                    )
 
                 ProfileOwnership.objects.create(
                     user=user,
-                    person=invitation.person,
+                    person=person,
                     status=(
                         ProfileOwnership
                         .Status.CONFIRMED
@@ -188,6 +315,19 @@ def accept_invitation(
                     claimed_at=timezone.now(),
                     verified_at=timezone.now(),
                 )
+
+                if (
+                    person.profile_status
+                    != Person.ProfileStatus.CLAIMED
+                ):
+                    person.profile_status = (
+                        Person.ProfileStatus.CLAIMED
+                    )
+                    person.save(
+                        update_fields=[
+                            "profile_status",
+                        ]
+                    )
 
                 invitation.status = (
                     Invitation.Status.ACCEPTED
@@ -204,6 +344,19 @@ def accept_invitation(
                     ]
                 )
 
+                log_audit_event(
+                    actor=user,
+                    action=AuditEvent.Action.ACCEPT_INVITATION,
+                    person=person,
+                    resource_type="INVITATION",
+                    object_id=invitation.id,
+                    details={
+                        "invitation_id": str(invitation.id),
+                        "email": invitation.email,
+                        "user_id": str(user.id),
+                    },
+                )
+
             login(
                 request,
                 user,
@@ -214,7 +367,9 @@ def accept_invitation(
             )
 
     else:
-        form = InvitationAcceptForm()
+        form = InvitationAcceptForm(
+            email=invitation.email,
+        )
 
     return render(
         request,
@@ -224,6 +379,7 @@ def accept_invitation(
             "invitation": invitation,
         },
     )
+
 
 @login_required
 def invitation_list(request):
@@ -292,6 +448,7 @@ def invitation_list(request):
         },
     )
 
+
 @login_required
 @require_POST
 @transaction.atomic
@@ -305,7 +462,9 @@ def cancel_invitation(
         )
 
     invitation = get_object_or_404(
-        Invitation.objects.select_for_update(),
+        Invitation.objects
+        .select_for_update()
+        .select_related("person"),
         id=invitation_id,
     )
 
@@ -321,6 +480,18 @@ def cancel_invitation(
             update_fields=[
                 "status",
             ]
+        )
+
+        log_audit_event(
+            actor=request.user,
+            action=AuditEvent.Action.CANCEL_INVITATION,
+            person=invitation.person,
+            resource_type="INVITATION",
+            object_id=invitation.id,
+            details={
+                "invitation_id": str(invitation.id),
+                "email": invitation.email,
+            },
         )
 
     return redirect(

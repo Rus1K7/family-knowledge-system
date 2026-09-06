@@ -3,6 +3,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from family.models import Person
 from profiles.models import ProfileChangeRequest
+from profiles.services import submit_change_request
 
 from .forms import HelpOfferForm
 from .models import HelpOffer
@@ -29,7 +30,7 @@ def add_help_offer(request, person_id):
         form = HelpOfferForm(request.POST)
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.HELP_OFFER
                 ),
@@ -101,7 +102,7 @@ def edit_help_offer(request, offer_id):
         )
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.HELP_OFFER
                 ),
@@ -168,7 +169,7 @@ def delete_help_offer(request, offer_id):
         )
 
     if request.method == "POST":
-        ProfileChangeRequest.objects.create(
+        submit_change_request(
             resource_type=(
                 ProfileChangeRequest.ResourceType.HELP_OFFER
             ),

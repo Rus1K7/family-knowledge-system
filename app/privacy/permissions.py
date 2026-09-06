@@ -1,16 +1,8 @@
-from django.utils import timezone
-
 from django.db import models
 from django.utils import timezone
 
 from family.permissions import (
-    is_system_admin,
-    user_owns_person,
-)
-
-from .models import AccessGrant, PrivacyPolicy
-
-from family.permissions import (
+    is_family_member,
     is_system_admin,
     user_owns_person,
 )
@@ -30,7 +22,7 @@ def get_policy(resource_type, object_id):
 
 
 def has_active_grant(user, policy):
-    if not user.is_authenticated:
+    if not is_family_member(user):
         return False
 
     now = timezone.now()
@@ -49,6 +41,8 @@ def has_active_grant(user, policy):
         )
         .exists()
     )
+
+
 def can_view_resource(
     user,
     person,
@@ -63,7 +57,7 @@ def can_view_resource(
     if user_owns_person(user, person):
         return True
 
-    if not user.is_authenticated:
+    if not is_family_member(user):
         return False
 
     policy = get_policy(
@@ -71,10 +65,10 @@ def can_view_resource(
         object_id,
     )
 
-    # Если политика ещё не задана,
-    # для MVP считаем запись доступной семье.
+    # Отсутствие политики не должно случайно раскрывать данные.
+    # Владелец и администратор уже обработаны выше.
     if policy is None:
-        return True
+        return False
 
     if (
         policy.visibility
@@ -113,6 +107,9 @@ def can_see_resource_existence(
         object_id,
     ):
         return True
+
+    if not is_family_member(user):
+        return False
 
     policy = get_policy(
         resource_type,

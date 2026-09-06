@@ -8,11 +8,6 @@ app_name = "privacy"
 
 urlpatterns = [
     path(
-        "<str:resource_type>/<uuid:object_id>/",
-        views.edit_privacy,
-        name="edit_privacy",
-    ),
-    path(
         "request/<uuid:policy_id>/",
         views.request_access,
         name="request_access",
@@ -50,5 +45,10 @@ urlpatterns = [
         "access/grant/<uuid:grant_id>/revoke/",
         views.revoke_access_grant,
         name="revoke_access_grant",
+    ),
+    path(
+        "<str:resource_type>/<uuid:object_id>/",
+        views.edit_privacy,
+        name="edit_privacy",
     ),
 ]

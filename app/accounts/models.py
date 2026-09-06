@@ -1,8 +1,20 @@
 import uuid
 
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import (
+    AbstractUser,
+    UserManager as DjangoUserManager,
+)
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils.translation import gettext_lazy as _
+
+
+class UserManager(DjangoUserManager):
+    @classmethod
+    def normalize_email(cls, email):
+        normalized = super().normalize_email(email)
+        return normalized.lower() if normalized else normalized
+
 
 class User(AbstractUser):
     class Status(models.TextChoices):
@@ -22,9 +34,7 @@ class User(AbstractUser):
         editable=False,
     )
 
-    email = models.EmailField(
-        unique=True,
-    )
+    email = models.EmailField()
 
     status = models.CharField(
         max_length=20,
@@ -47,8 +57,26 @@ class User(AbstractUser):
         blank=True,
     )
 
+    objects = UserManager()
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                Lower("email"),
+                name="accounts_user_email_ci_unique",
+            ),
+        ]
+
     def __str__(self):
         return self.email or self.username
+
+
+class LoginAttemptWindow(models.Model):
+    """Shared, short-lived login counters; keys never contain raw identifiers."""
+
+    key = models.CharField(max_length=64, primary_key=True, editable=False)
+    attempts = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(db_index=True)
 
 
 from django.conf import settings

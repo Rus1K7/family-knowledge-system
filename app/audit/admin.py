@@ -33,6 +33,7 @@ class AuditEventAdmin(admin.ModelAdmin):
         "person",
         "resource_type",
         "object_id",
+        "details",
         "created_at",
     )
 
@@ -47,6 +48,13 @@ class AuditEventAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return False
+
+    def has_delete_permission(
         self,
         request,
         obj=None,

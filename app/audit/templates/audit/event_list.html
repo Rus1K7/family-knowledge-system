@@ -1,0 +1,329 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+
+    <title>
+        Журнал действий
+    </title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #f5f5f7;
+
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .event {
+            background: white;
+
+            padding: 18px;
+            margin-bottom: 12px;
+
+            border-radius: 14px;
+        }
+
+        .secondary {
+            color: #777;
+        }
+
+        .action {
+            font-weight: 600;
+        }
+
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            background: white;
+            padding: 16px;
+            margin: 18px 0 24px;
+            border-radius: 14px;
+        }
+
+        .filters label {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        .filters input,
+        .filters select {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #d5d5dc;
+            border-radius: 8px;
+            background: white;
+        }
+
+        .filters button {
+            align-self: end;
+            padding: 9px 14px;
+            border: 0;
+            border-radius: 8px;
+            background: #2f5bea;
+            color: white;
+            cursor: pointer;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 14px;
+            margin: 24px 0;
+        }
+    </style>
+</head>
+
+
+<body>
+
+<div class="container">
+
+    <p>
+        <a href="{% url 'family:home' %}">
+            ← Семейное дерево
+        </a>
+    </p>
+
+
+    <h1>
+        🔎 Журнал действий
+    </h1>
+
+    <form method="get" class="filters">
+        <label>
+            Действие
+            <select name="action">
+                <option value="">Все действия</option>
+                {% for value, label in actions %}
+                    <option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>
+                        {{ label }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>
+            Пользователь (email или имя)
+            <input type="text" name="actor" value="{{ filters.actor }}">
+        </label>
+
+        <label>
+            Человек
+            <input type="text" name="person" value="{{ filters.person }}">
+        </label>
+
+        <label>
+            С даты
+            <input type="date" name="date_from" value="{{ filters.date_from }}">
+        </label>
+
+        <label>
+            По дату
+            <input type="date" name="date_to" value="{{ filters.date_to }}">
+        </label>
+
+        <button type="submit">Применить</button>
+    </form>
+
+
+    {% for event in events %}
+
+        <div class="event">
+
+            <div class="action">
+
+                {% if event.action == "VIEW_PRIVATE_RESOURCE" %}
+                    👁 Просмотр закрытых данных
+
+                {% elif event.action == "UPLOAD_MEDIA" %}
+                    ⬆️ Загрузка файла
+
+                {% elif event.action == "VIEW_MEDIA" %}
+                    👁 Просмотр файла
+
+                {% elif event.action == "APPROVE_MEDIA" %}
+                    ✅ Одобрение файла
+
+                {% elif event.action == "REJECT_MEDIA" %}
+                    ❌ Отклонение файла
+
+                {% elif event.action == "ARCHIVE_MEDIA" %}
+                    📦 Архивирование файла
+
+                {% elif event.action == "UPDATE_MEDIA" %}
+                    ✏️ Изменение описания файла
+
+                {% elif event.action == "VERIFY_HERITAGE" %}
+                    🔎 Проверка исторических данных
+
+                {% elif event.action == "CREATE_SOURCE" %}
+                    📚 Создание источника
+
+                {% elif event.action == "UPDATE_SOURCE" %}
+                    ✏️ Изменение источника
+
+                {% elif event.action == "ARCHIVE_SOURCE" %}
+                    📦 Архивирование источника
+
+                {% elif event.action == "ATTACH_SOURCE" %}
+                    🔗 Привязка источника
+
+                {% elif event.action == "UPDATE_SOURCE_LINK" %}
+                    ✏️ Изменение связи с источником
+
+                {% elif event.action == "DETACH_SOURCE" %}
+                    🧹 Отвязка источника
+
+                {% elif event.action == "UPDATE_PRIVACY_POLICY" %}
+                    🛡 Изменение приватности
+
+                {% elif event.action == "REQUEST_ACCESS" %}
+                    🙋 Запрос доступа
+
+                {% elif event.action == "REJECT_ACCESS" %}
+                    ⛔ Отклонение запроса доступа
+
+                {% elif event.action == "CREATE_INVITATION" %}
+                    ✉️ Создание приглашения
+
+                {% elif event.action == "ACCEPT_INVITATION" %}
+                    ✅ Принятие приглашения
+
+                {% elif event.action == "CANCEL_INVITATION" %}
+                    🚫 Отмена приглашения
+
+                {% elif event.action == "REQUEST_CHANGE" %}
+                    📝 Создание заявки на изменение
+
+                {% elif event.action == "GRANT_ACCESS" %}
+                    🔑 Выдача доступа
+
+                {% elif event.action == "REVOKE_ACCESS" %}
+                    🔒 Отзыв доступа
+
+                {% elif event.action == "APPROVE_CHANGE" %}
+                    ✅ Одобрение изменения
+
+                {% elif event.action == "REJECT_CHANGE" %}
+                    ❌ Отклонение изменения
+
+                {% else %}
+                    {{ event.get_action_display }}
+                {% endif %}
+
+            </div>
+
+
+            <p>
+                <strong>Пользователь:</strong>
+
+                {% if event.actor %}
+                    {{ event.actor }}
+                {% else %}
+                    неизвестен / удалён
+                {% endif %}
+            </p>
+
+
+            {% if event.person %}
+
+                <p>
+                    <strong>Профиль:</strong>
+
+                    <a href="{% url 'family:person_detail' event.person.id %}">
+                        {{ event.person }}
+                    </a>
+                </p>
+
+            {% endif %}
+
+
+            {% if event.resource_type %}
+
+                <p>
+                    <strong>Тип объекта:</strong>
+                    {{ event.resource_type }}
+                </p>
+
+            {% endif %}
+
+
+            {% if event.object_id %}
+
+                <p>
+                    <strong>ID объекта:</strong>
+                    {{ event.object_id }}
+                </p>
+
+            {% endif %}
+
+
+            {% if event.details %}
+
+                <details>
+                    <summary>Контекст события</summary>
+                    <pre>{{ event.details }}</pre>
+                </details>
+
+            {% endif %}
+
+
+            <div class="secondary">
+                {{ event.created_at }}
+            </div>
+
+        </div>
+
+
+    {% empty %}
+
+        <p>
+            Событий пока нет.
+        </p>
+
+    {% endfor %}
+
+    {% if page_obj.has_other_pages %}
+        <nav class="pagination" aria-label="Страницы журнала">
+            {% if page_obj.has_previous %}
+                <a href="?{% if filter_query %}{{ filter_query }}&{% endif %}page={{ page_obj.previous_page_number }}">
+                    ← Назад
+                </a>
+            {% endif %}
+
+            <span>
+                Страница {{ page_obj.number }} из {{ page_obj.paginator.num_pages }}
+            </span>
+
+            {% if page_obj.has_next %}
+                <a href="?{% if filter_query %}{{ filter_query }}&{% endif %}page={{ page_obj.next_page_number }}">
+                    Далее →
+                </a>
+            {% endif %}
+        </nav>
+    {% endif %}
+
+</div>
+
+</body>
+
+</html>

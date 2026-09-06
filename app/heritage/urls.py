@@ -49,6 +49,16 @@ urlpatterns = [
         views.attach_existing_source,
         name="attach_existing_source",
     ),
+    path(
+        "source/<uuid:source_id>/edit/",
+        views.edit_source,
+        name="edit_source",
+    ),
+    path(
+        "source/<uuid:source_id>/archive/",
+        views.archive_source,
+        name="archive_source",
+    ),
 
     path(
         "source-link/<uuid:link_id>/detach/",
@@ -86,5 +96,15 @@ urlpatterns = [
         "media/<uuid:media_id>/reject/",
         views.reject_media_asset,
         name="reject_media_asset",
+    ),
+    path(
+        "media/<uuid:media_id>/archive/",
+        views.archive_media_asset,
+        name="archive_media_asset",
+    ),
+    path(
+        "media/<uuid:media_id>/edit/",
+        views.edit_media_asset,
+        name="edit_media_asset",
     ),
 ]

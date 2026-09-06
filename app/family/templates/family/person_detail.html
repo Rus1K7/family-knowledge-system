@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 
@@ -5,6 +6,8 @@
     <meta charset="UTF-8">
 
     <title>{{ person }}</title>
+
+    <link rel="stylesheet" href="{% static 'family/family.css' %}">
 
     <style>
         body {
@@ -107,7 +110,7 @@
     <a
         class="back"
         href="{% url 'family:home' %}">
-        ← Семейное дерево
+        ← Семейный круг
     </a>
 
 
@@ -369,7 +372,26 @@
                                     {% endif %}
 
 
+                                    {% include "heritage/source_document_link.html" with link=link only %}
+
                                     {% if can_manage %}
+
+                                        {% if can_admin or link.source.created_by_id == request.user.id %}
+                                            <a href="{% url 'heritage:edit_source' link.source.id %}">
+                                                изменить источник
+                                            </a>
+
+                                            <form
+                                                method="post"
+                                                action="{% url 'heritage:archive_source' link.source.id %}"
+                                                style="display:inline;"
+                                            >
+                                                {% csrf_token %}
+                                                <button type="submit">
+                                                    архивировать источник
+                                                </button>
+                                            </form>
+                                        {% endif %}
 
                                         <form
                                             method="post"
@@ -583,7 +605,26 @@
                                     {% endif %}
 
 
+                                    {% include "heritage/source_document_link.html" with link=link only %}
+
                                     {% if can_manage %}
+
+                                        {% if can_admin or link.source.created_by_id == request.user.id %}
+                                            <a href="{% url 'heritage:edit_source' link.source.id %}">
+                                                изменить источник
+                                            </a>
+
+                                            <form
+                                                method="post"
+                                                action="{% url 'heritage:archive_source' link.source.id %}"
+                                                style="display:inline;"
+                                            >
+                                                {% csrf_token %}
+                                                <button type="submit">
+                                                    архивировать источник
+                                                </button>
+                                            </form>
+                                        {% endif %}
 
                                         <form
                                             method="post"
@@ -825,10 +866,25 @@
                         {% if can_manage %}
 
                             <p>
+                                <a href="{% url 'heritage:edit_media_asset' media.id %}">
+                                    ✏️ Изменить описание
+                                </a>
+                            </p>
+
+                            <p>
                                 <a href="{% url 'privacy:edit_privacy' 'MEDIA_ASSET' media.id %}">
                                     🔐 Приватность
                                 </a>
                             </p>
+
+                            {% if media.status != "ARCHIVED" %}
+                                <form method="post" action="{% url 'heritage:archive_media_asset' media.id %}">
+                                    {% csrf_token %}
+                                    <button type="submit">
+                                        📦 Архивировать файл
+                                    </button>
+                                </form>
+                            {% endif %}
 
                         {% endif %}
 

@@ -1,8 +1,18 @@
 from .models import ProfileOwnership
 
 
-def is_system_admin(user):
+def has_active_account(user):
     if not user.is_authenticated:
+        return False
+
+    return (
+        user.is_active
+        and getattr(user, "status", None) == "ACTIVE"
+    )
+
+
+def is_system_admin(user):
+    if not has_active_account(user):
         return False
 
     return (
@@ -12,7 +22,7 @@ def is_system_admin(user):
 
 
 def user_owns_person(user, person):
-    if not user.is_authenticated:
+    if not has_active_account(user):
         return False
 
     if is_system_admin(user):
@@ -21,6 +31,16 @@ def user_owns_person(user, person):
     return ProfileOwnership.objects.filter(
         user=user,
         person=person,
+        status=ProfileOwnership.Status.CONFIRMED,
+    ).exists()
+
+
+def is_family_member(user):
+    if not has_active_account(user):
+        return False
+
+    return ProfileOwnership.objects.filter(
+        user=user,
         status=ProfileOwnership.Status.CONFIRMED,
     ).exists()
 

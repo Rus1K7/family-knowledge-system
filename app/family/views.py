@@ -1,17 +1,22 @@
 from collections import deque
 
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render
 
-from django.contrib.admin.views.decorators import staff_member_required
 from django.db import transaction
 from django.shortcuts import redirect
 
+from audit.models import AuditEvent
+from audit.services import log_audit_event
+
 from .forms import AddRelativeForm
 from .models import Person, ProfileOwnership, Relationship
+from .relationships import lock_relationship_graph
 
 from .permissions import (
     can_manage_person,
+    is_family_member,
     is_system_admin,
 )
 from privacy.models import (
@@ -25,12 +30,14 @@ from privacy.permissions import (
 )
 from heritage.models import (
     Biography,
+    Source,
     SourceLink,
     Verification,
     MediaAsset,
 )
 from heritage.permissions import (
     can_verify_heritage,
+    prepare_source_documents,
 )
 
 def build_generation_levels(persons, relationships):
@@ -144,6 +151,14 @@ def build_generation_levels(persons, relationships):
 
 @login_required
 def family_home(request):
+    if not (
+        is_system_admin(request.user)
+        or is_family_member(request.user)
+    ):
+        raise PermissionDenied(
+            "Доступ к семейному пространству не подтверждён."
+        )
+
     persons = list(
         Person.objects.all().order_by(
             "last_name",
@@ -225,6 +240,14 @@ def family_home(request):
 
 @login_required
 def person_detail(request, person_id):
+    if not (
+        is_system_admin(request.user)
+        or is_family_member(request.user)
+    ):
+        raise PermissionDenied(
+            "Доступ к семейному пространству не подтверждён."
+        )
+
     person = get_object_or_404(
         Person,
         id=person_id,
@@ -312,6 +335,30 @@ def person_detail(request, person_id):
         request.user,
         person,
     )
+
+    def log_granted_resource_view(
+        resource_type,
+        object_id,
+        policy,
+    ):
+        if (
+            can_manage
+            or policy is None
+            or policy.visibility not in {
+                PrivacyPolicy.Visibility.SELECTED_USERS,
+                PrivacyPolicy.Visibility.REQUEST_ONLY,
+            }
+        ):
+            return
+
+        log_audit_event(
+            actor=request.user,
+            action=AuditEvent.Action.VIEW_PRIVATE_RESOURCE,
+            person=person,
+            resource_type=resource_type,
+            object_id=object_id,
+        )
+
     pending_access_requests_count = 0
 
     if can_manage:
@@ -366,6 +413,11 @@ def person_detail(request, person_id):
         )
 
         if can_view:
+            log_granted_resource_view(
+                PrivacyPolicy.ResourceType.EMPLOYMENT,
+                employment.id,
+                policy,
+            )
             employment_items.append(
                 {
                     "object": employment,
@@ -408,6 +460,11 @@ def person_detail(request, person_id):
         )
 
         if can_view:
+            log_granted_resource_view(
+                PrivacyPolicy.ResourceType.EDUCATION,
+                education.id,
+                policy,
+            )
             education_items.append(
                 {
                     "object": education,
@@ -450,6 +507,11 @@ def person_detail(request, person_id):
         )
 
         if can_view:
+            log_granted_resource_view(
+                PrivacyPolicy.ResourceType.SKILL,
+                skill.id,
+                policy,
+            )
             skill_items.append(
                 {
                     "object": skill,
@@ -492,6 +554,11 @@ def person_detail(request, person_id):
         )
 
         if can_view:
+            log_granted_resource_view(
+                PrivacyPolicy.ResourceType.HELP_OFFER,
+                offer.id,
+                policy,
+            )
             help_offer_items.append(
                 {
                     "object": offer,
@@ -551,8 +618,9 @@ def person_detail(request, person_id):
                     SourceLink.ResourceType.BIOGRAPHY
                 ),
                 object_id=biography.id,
+                source__status=Source.Status.ACTIVE,
             )
-            .select_related("source")
+            .select_related("source__document__person")
         )
 
         verification = (
@@ -568,10 +636,15 @@ def person_detail(request, person_id):
         )
 
         if can_view:
+            log_granted_resource_view(
+                PrivacyPolicy.ResourceType.BIOGRAPHY,
+                biography.id,
+                policy,
+            )
             biography_item = {
                 "object": biography,
                 "locked": False,
-                "source_links": source_links,
+                "source_links": prepare_source_documents(request.user, source_links),
                 "verification": verification,
             }
 
@@ -619,8 +692,9 @@ def person_detail(request, person_id):
                     SourceLink.ResourceType.LIFE_EVENT
                 ),
                 object_id=event.id,
+                source__status=Source.Status.ACTIVE,
             )
-            .select_related("source")
+            .select_related("source__document__person")
         )
 
         verification = (
@@ -636,11 +710,16 @@ def person_detail(request, person_id):
         )
 
         if can_view:
+            log_granted_resource_view(
+                PrivacyPolicy.ResourceType.LIFE_EVENT,
+                event.id,
+                policy,
+            )
             life_event_items.append(
                 {
                     "object": event,
                     "locked": False,
-                    "source_links": source_links,
+                    "source_links": prepare_source_documents(request.user, source_links),
                     "verification": verification,
                 }
             )
@@ -659,121 +738,67 @@ def person_detail(request, person_id):
                 }
             )
 
-    for event in person.life_events.all():
+    # -----------------------------
+    # MEDIA
+    # -----------------------------
+
+    for media_asset in (
+        person.media_assets
+        .all()
+        .order_by("-created_at")
+    ):
+        if media_asset.status == MediaAsset.Status.ARCHIVED:
+            continue
+
+        # Неодобренные файлы видит только
+        # владелец профиля или администратор.
+        if (
+            media_asset.status
+            != MediaAsset.Status.APPROVED
+            and not can_manage
+        ):
+            continue
+
         can_view = can_view_resource(
             request.user,
             person,
-            PrivacyPolicy.ResourceType.LIFE_EVENT,
-            event.id,
+            PrivacyPolicy.ResourceType.MEDIA_ASSET,
+            media_asset.id,
         )
 
         show_existence = can_see_resource_existence(
             request.user,
             person,
-            PrivacyPolicy.ResourceType.LIFE_EVENT,
-            event.id,
+            PrivacyPolicy.ResourceType.MEDIA_ASSET,
+            media_asset.id,
         )
 
         policy = get_policy(
-            PrivacyPolicy.ResourceType.LIFE_EVENT,
-            event.id,
-        )
-
-        source_links = list(
-            SourceLink.objects
-            .filter(
-                resource_type=(
-                    SourceLink.ResourceType.LIFE_EVENT
-                ),
-                object_id=event.id,
-            )
-            .select_related("source")
+            PrivacyPolicy.ResourceType.MEDIA_ASSET,
+            media_asset.id,
         )
 
         if can_view:
-            life_event_items.append(
+            media_items.append(
                 {
-                    "object": event,
+                    "object": media_asset,
                     "locked": False,
-                    "source_links": source_links,
                 }
             )
 
         elif show_existence:
-            life_event_items.append(
+            media_items.append(
                 {
-                    "object": event,
+                    "object": media_asset,
                     "locked": True,
                     "policy": policy,
                     "requestable": (
-                            policy is not None
-                            and policy.visibility
-                            == PrivacyPolicy.Visibility.REQUEST_ONLY
+                        policy is not None
+                        and policy.visibility
+                        == PrivacyPolicy.Visibility.REQUEST_ONLY
                     ),
                 }
             )
-
-            # -----------------------------
-            # MEDIA
-            # -----------------------------
-
-            for media_asset in (
-                    person.media_assets
-                            .all()
-                            .order_by("-created_at")
-            ):
-
-                # Неодобренные файлы видит только
-                # владелец профиля или администратор.
-                if (
-                        media_asset.status
-                        != MediaAsset.Status.APPROVED
-                        and not can_manage
-                ):
-                    continue
-
-                can_view = can_view_resource(
-                    request.user,
-                    person,
-                    PrivacyPolicy.ResourceType.MEDIA_ASSET,
-                    media_asset.id,
-                )
-
-                show_existence = (
-                    can_see_resource_existence(
-                        request.user,
-                        person,
-                        PrivacyPolicy.ResourceType.MEDIA_ASSET,
-                        media_asset.id,
-                    )
-                )
-
-                policy = get_policy(
-                    PrivacyPolicy.ResourceType.MEDIA_ASSET,
-                    media_asset.id,
-                )
-
-                if can_view:
-                    media_items.append(
-                        {
-                            "object": media_asset,
-                            "locked": False,
-                        }
-                    )
-
-                elif show_existence:
-                    media_items.append(
-                        {
-                            "object": media_asset,
-                            "locked": True,
-                            "policy": policy,
-                            "requestable": (
-                                    policy is not None
-                                    and policy.visibility
-                                    == PrivacyPolicy.Visibility.REQUEST_ONLY
-                            ),
-                        }
-                    )
 
 
     return render(
@@ -803,9 +828,17 @@ def person_detail(request, person_id):
         },
     )
 
-@staff_member_required
+@login_required
 @transaction.atomic
 def add_relative(request, person_id):
+    if not is_system_admin(request.user):
+        raise PermissionDenied("Только администратор может менять семейное дерево.")
+
+    if request.method == "POST":
+        # Serialize graph validation and writes, including requests for
+        # different people that could jointly close an ancestry cycle.
+        lock_relationship_graph()
+
     person = get_object_or_404(
         Person,
         id=person_id,
@@ -841,12 +874,22 @@ def add_relative(request, person_id):
                     ),
                 )
 
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.CREATE_PERSON,
+                    person=relative,
+                    resource_type="PERSON",
+                    object_id=relative.id,
+                )
+
             relation_type = form.cleaned_data[
                 "relation_type"
             ]
+            relationship = None
+            created = False
 
             if relation_type == "PARENT":
-                Relationship.objects.get_or_create(
+                relationship, created = Relationship.objects.get_or_create(
                     person_a=relative,
                     person_b=person,
                     relationship_type=(
@@ -861,7 +904,7 @@ def add_relative(request, person_id):
                 )
 
             elif relation_type == "CHILD":
-                Relationship.objects.get_or_create(
+                relationship, created = Relationship.objects.get_or_create(
                     person_a=person,
                     person_b=relative,
                     relationship_type=(
@@ -895,7 +938,7 @@ def add_relative(request, person_id):
                 )
 
                 if not already_exists:
-                    Relationship.objects.create(
+                    relationship = Relationship.objects.create(
                         person_a=person,
                         person_b=relative,
                         relationship_type=(
@@ -906,6 +949,22 @@ def add_relative(request, person_id):
                         ),
                         created_by=request.user,
                     )
+                    created = True
+
+            if created:
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.CREATE_RELATIONSHIP,
+                    person=person,
+                    resource_type="RELATIONSHIP",
+                    object_id=relationship.id,
+                    details={
+                        "person_a_id": str(relationship.person_a_id),
+                        "person_b_id": str(relationship.person_b_id),
+                        "relationship_type": relationship.relationship_type,
+                        "status": relationship.status,
+                    },
+                )
 
             return redirect(
                 "family:person_detail",

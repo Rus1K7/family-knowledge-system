@@ -168,6 +168,10 @@ class Source(models.Model):
         WEBSITE = "WEBSITE", _("Веб-сайт")
         OTHER = "OTHER", _("Другое")
 
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE", _("Активен")
+        ARCHIVED = "ARCHIVED", _("Архивирован")
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -203,6 +207,15 @@ class Source(models.Model):
         blank=True,
     )
 
+    document = models.ForeignKey(
+        "MediaAsset",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sources",
+        verbose_name=_("Документ в семейном архиве"),
+    )
+
     citation = models.TextField(
         _("Описание / ссылка на источник"),
         blank=True,
@@ -211,6 +224,13 @@ class Source(models.Model):
     notes = models.TextField(
         _("Примечания"),
         blank=True,
+    )
+
+    status = models.CharField(
+        _("Статус"),
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
     )
 
     created_by = models.ForeignKey(

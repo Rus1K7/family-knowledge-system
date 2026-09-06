@@ -59,6 +59,7 @@ class SelectedUserGrantForm(forms.Form):
         queryset = User.objects.filter(
             id__in=family_user_ids,
             is_active=True,
+            status=User.Status.ACTIVE,
         )
 
         if current_user is not None:

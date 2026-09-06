@@ -1,41 +1,23 @@
-from django.core.exceptions import PermissionDenied
-from django.shortcuts import get_object_or_404, redirect, render
-
-from family.permissions import can_manage_person
-from network.models import HelpOffer
-from profiles.models import Education, Employment, Skill
-from heritage.models import Biography, LifeEvent
-from .forms import PrivacyPolicyForm
-from .models import PrivacyPolicy
-
-from django.contrib.auth.decorators import login_required
-
-RESOURCE_MODELS = {
-    PrivacyPolicy.ResourceType.EMPLOYMENT: Employment,
-    PrivacyPolicy.ResourceType.EDUCATION: Education,
-    PrivacyPolicy.ResourceType.SKILL: Skill,
-    PrivacyPolicy.ResourceType.HELP_OFFER: HelpOffer,
-
-    PrivacyPolicy.ResourceType.BIOGRAPHY: Biography,
-    PrivacyPolicy.ResourceType.LIFE_EVENT: LifeEvent,
-}
-
-
 from datetime import timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import models, transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from audit.models import AuditEvent
+from audit.services import log_audit_event
 from family.models import ProfileOwnership
-
 from family.permissions import (
     can_manage_person,
+    is_family_member,
     is_system_admin,
 )
+from heritage.models import Biography, LifeEvent, MediaAsset
+from network.models import HelpOffer
+from profiles.models import Education, Employment, Skill
 
 from .forms import (
     AccessRequestForm,
@@ -49,7 +31,16 @@ from .models import (
     PrivacyPolicy,
 )
 
-from django.db import models
+
+RESOURCE_MODELS = {
+    PrivacyPolicy.ResourceType.EMPLOYMENT: Employment,
+    PrivacyPolicy.ResourceType.EDUCATION: Education,
+    PrivacyPolicy.ResourceType.SKILL: Skill,
+    PrivacyPolicy.ResourceType.HELP_OFFER: HelpOffer,
+    PrivacyPolicy.ResourceType.BIOGRAPHY: Biography,
+    PrivacyPolicy.ResourceType.LIFE_EVENT: LifeEvent,
+    PrivacyPolicy.ResourceType.MEDIA_ASSET: MediaAsset,
+}
 
 
 def get_resource(resource_type, object_id):
@@ -66,6 +57,7 @@ def get_resource(resource_type, object_id):
     )
 
 @login_required
+@transaction.atomic
 def edit_privacy(request, resource_type, object_id):
     resource = get_resource(
         resource_type,
@@ -82,16 +74,22 @@ def edit_privacy(request, resource_type, object_id):
             "Вы не можете менять приватность этого профиля."
         )
 
-    policy, created = PrivacyPolicy.objects.get_or_create(
+    policy_queryset = PrivacyPolicy.objects
+
+    if request.method == "POST":
+        policy_queryset = policy_queryset.select_for_update()
+
+    policy = get_object_or_404(
+        policy_queryset,
         person=person,
         resource_type=resource_type,
         object_id=resource.id,
-        defaults={
-            "visibility":
-                PrivacyPolicy.Visibility.FAMILY,
-            "show_existence": True,
-        },
     )
+
+    old_state = {
+        "visibility": policy.visibility,
+        "show_existence": policy.show_existence,
+    }
 
     if request.method == "POST":
         form = PrivacyPolicyForm(
@@ -100,7 +98,27 @@ def edit_privacy(request, resource_type, object_id):
         )
 
         if form.is_valid():
-            form.save()
+            policy = form.save()
+
+            new_state = {
+                "visibility": policy.visibility,
+                "show_existence": policy.show_existence,
+            }
+
+            if old_state != new_state:
+                log_audit_event(
+                    actor=request.user,
+                    action=(
+                        AuditEvent.Action.UPDATE_PRIVACY_POLICY
+                    ),
+                    person=person,
+                    resource_type=resource_type,
+                    object_id=resource.id,
+                    details={
+                        "old": old_state,
+                        "new": new_state,
+                    },
+                )
 
             return redirect(
                 "family:person_detail",
@@ -124,9 +142,14 @@ def edit_privacy(request, resource_type, object_id):
     )
 
 @login_required
+@transaction.atomic
 def request_access(request, policy_id):
+    policy_queryset = PrivacyPolicy.objects.select_related("person")
+    if request.method == "POST":
+        policy_queryset = policy_queryset.select_for_update()
+
     policy = get_object_or_404(
-        PrivacyPolicy.objects.select_related("person"),
+        policy_queryset,
         id=policy_id,
     )
 
@@ -145,6 +168,11 @@ def request_access(request, policy_id):
         return redirect(
             "family:person_detail",
             person_id=policy.person.id,
+        )
+
+    if not is_family_member(request.user):
+        raise PermissionDenied(
+            "Доступ к семейному пространству не подтверждён."
         )
 
     active_grant = AccessGrant.objects.filter(
@@ -169,15 +197,31 @@ def request_access(request, policy_id):
         )
 
         if form.is_valid():
-            AccessRequest.objects.get_or_create(
-                policy=policy,
-                requester=request.user,
-                status=AccessRequest.Status.PENDING,
-                defaults={
-                    "reason":
-                        form.cleaned_data["reason"],
-                },
+            access_request, created = (
+                AccessRequest.objects.get_or_create(
+                    policy=policy,
+                    requester=request.user,
+                    status=AccessRequest.Status.PENDING,
+                    defaults={
+                        "reason":
+                            form.cleaned_data["reason"],
+                    },
+                )
             )
+
+            if created:
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.REQUEST_ACCESS,
+                    person=policy.person,
+                    resource_type=policy.resource_type,
+                    object_id=policy.object_id,
+                    details={
+                        "policy_id": str(policy.id),
+                        "request_id": str(access_request.id),
+                        "requester_id": str(request.user.id),
+                    },
+                )
 
             return redirect(
                 "family:person_detail",
@@ -196,6 +240,8 @@ def request_access(request, policy_id):
             "person": policy.person,
         },
     )
+
+
 def get_resource_or_none(
     resource_type,
     object_id,
@@ -332,7 +378,7 @@ def approve_access_request(
     )
 
     if grant is None:
-        AccessGrant.objects.create(
+        grant = AccessGrant.objects.create(
             policy=access_request.policy,
             grantee=access_request.requester,
             action=AccessGrant.Action.VIEW,
@@ -363,6 +409,28 @@ def approve_access_request(
         ]
     )
 
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.GRANT_ACCESS,
+        person=access_request.policy.person,
+        resource_type=access_request.policy.resource_type,
+        object_id=access_request.policy.object_id,
+        details={
+            "policy_id": str(access_request.policy_id),
+            "request_id": str(access_request.id),
+            "requester_id": str(access_request.requester_id),
+            "grantee_id": str(access_request.requester_id),
+            "grant_id": str(grant.id),
+            "source": "access_request",
+            "duration": duration,
+            "valid_until": (
+                valid_until.isoformat()
+                if valid_until is not None
+                else None
+            ),
+        },
+    )
+
     return redirect(
         "privacy:access_request_list",
     )
@@ -380,6 +448,7 @@ def reject_access_request(
         .select_related(
             "policy",
             "policy__person",
+            "requester",
         ),
         id=request_id,
     )
@@ -413,6 +482,19 @@ def reject_access_request(
             "reviewed_by",
             "reviewed_at",
         ]
+    )
+
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.REJECT_ACCESS,
+        person=access_request.policy.person,
+        resource_type=access_request.policy.resource_type,
+        object_id=access_request.policy.object_id,
+        details={
+            "policy_id": str(access_request.policy_id),
+            "request_id": str(access_request.id),
+            "requester_id": str(access_request.requester_id),
+        },
     )
 
     return redirect(
@@ -496,6 +578,7 @@ def grant_selected_user(request, policy_id):
 
     if form.is_valid():
         grantee = form.cleaned_data["user"]
+        changed = False
 
         grant = (
             AccessGrant.objects
@@ -509,14 +592,15 @@ def grant_selected_user(request, policy_id):
         )
 
         if grant is None:
-            AccessGrant.objects.create(
+            grant = AccessGrant.objects.create(
                 policy=policy,
                 grantee=grantee,
                 action=AccessGrant.Action.VIEW,
                 valid_until=None,
             )
+            changed = True
 
-        else:
+        elif grant.valid_until is not None:
             # Например, существовал истёкший
             # временный доступ.
             grant.valid_until = None
@@ -525,6 +609,23 @@ def grant_selected_user(request, policy_id):
                 update_fields=[
                     "valid_until",
                 ]
+            )
+            changed = True
+
+        if changed:
+            log_audit_event(
+                actor=request.user,
+                action=AuditEvent.Action.GRANT_ACCESS,
+                person=policy.person,
+                resource_type=policy.resource_type,
+                object_id=policy.object_id,
+                details={
+                    "policy_id": str(policy.id),
+                    "grantee_id": str(grantee.id),
+                    "grant_id": str(grant.id),
+                    "source": "manual",
+                    "valid_until": None,
+                },
             )
 
     return redirect(
@@ -561,6 +662,20 @@ def revoke_access_grant(request, grant_id):
             update_fields=[
                 "revoked_at",
             ]
+        )
+
+        log_audit_event(
+            actor=request.user,
+            action=AuditEvent.Action.REVOKE_ACCESS,
+            person=grant.policy.person,
+            resource_type=grant.policy.resource_type,
+            object_id=grant.policy.object_id,
+            details={
+                "policy_id": str(grant.policy_id),
+                "grantee_id": str(grant.grantee_id),
+                "grant_id": str(grant.id),
+                "revoked_at": grant.revoked_at.isoformat(),
+            },
         )
 
     return redirect(

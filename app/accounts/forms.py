@@ -1,13 +1,34 @@
 from django import forms
 from django.contrib.auth import get_user_model
-
-from family.models import ProfileOwnership
-from privacy.models import PrivacyPolicy
-
-from .models import Invitation
+from django.contrib.auth.forms import PasswordResetForm as DjangoPasswordResetForm
+from django.contrib.auth.password_validation import (
+    password_validators_help_text_html,
+    validate_password,
+)
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+from family.models import ProfileOwnership
+
+from .models import Invitation
+from .login_throttle import reserve_password_reset_email
+
 User = get_user_model()
+
+
+class ActivePasswordResetForm(DjangoPasswordResetForm):
+    """Keep password recovery aligned with the status-aware login backend."""
+
+    def get_users(self, email):
+        return (
+            user
+            for user in super().get_users(email)
+            if user.status == User.Status.ACTIVE
+        )
+
+    def save(self, **kwargs):
+        if reserve_password_reset_email(self.cleaned_data["email"]):
+            return super().save(**kwargs)
 
 
 class InvitationCreateForm(forms.ModelForm):
@@ -18,6 +39,9 @@ class InvitationCreateForm(forms.ModelForm):
             "person",
             "email",
         ]
+
+    def clean_email(self):
+        return self.cleaned_data["email"].lower()
 
     def clean(self):
         cleaned_data = super().clean()
@@ -61,7 +85,7 @@ class InvitationCreateForm(forms.ModelForm):
 
         if (
             email
-            and User.objects.filter(email=email).exists()
+            and User.objects.filter(email__iexact=email).exists()
         ):
             self.add_error(
                 "email",
@@ -79,12 +103,17 @@ class InvitationAcceptForm(forms.Form):
     password1 = forms.CharField(
         label="Пароль",
         widget=forms.PasswordInput,
+        help_text=password_validators_help_text_html(),
     )
 
     password2 = forms.CharField(
         label="Повторите пароль",
         widget=forms.PasswordInput,
     )
+
+    def __init__(self, *args, email="", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.email = email
 
     def clean_username(self):
         username = self.cleaned_data["username"]
@@ -109,6 +138,10 @@ class InvitationAcceptForm(forms.Form):
             "password2"
         )
 
+        username = cleaned_data.get(
+            "username"
+        )
+
         if (
             password1
             and password2
@@ -118,5 +151,22 @@ class InvitationAcceptForm(forms.Form):
                 "password2",
                 "Пароли не совпадают.",
             )
+
+        if password1:
+            candidate_user = User(
+                username=username or "",
+                email=self.email,
+            )
+
+            try:
+                validate_password(
+                    password1,
+                    user=candidate_user,
+                )
+            except ValidationError as error:
+                self.add_error(
+                    "password1",
+                    error,
+                )
 
         return cleaned_data

@@ -39,3 +39,10 @@ htmlcov/
 # Private family files
 private_media/
 app/private_media/
+
+# Local backups contain private family data
+backups/
+*.dump
+.tools/
+*.age
+*.agekey

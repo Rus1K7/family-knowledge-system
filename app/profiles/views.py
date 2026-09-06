@@ -1,7 +1,6 @@
 from functools import wraps
 
 from django.contrib.auth.decorators import login_required
-from django.contrib.admin.views.decorators import staff_member_required
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
@@ -10,7 +9,12 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.http import require_POST
 
 from accounts.models import User
+from audit.models import AuditEvent
+from audit.services import log_audit_event
+from family.permissions import can_manage_person
 from family.models import Person
+from heritage.models import Biography, LifeEvent
+from network.models import HelpOffer
 
 from .forms import EducationForm, EmploymentForm, SkillForm
 from .models import (
@@ -19,13 +23,7 @@ from .models import (
     ProfileChangeRequest,
     Skill,
 )
-
-from network.models import HelpOffer
-
-from django.core.exceptions import PermissionDenied
-
-from family.permissions import can_manage_person
-from heritage.models import Biography, LifeEvent
+from .services import submit_change_request
 
 def system_admin_required(view_func):
     @wraps(view_func)
@@ -50,7 +48,7 @@ def get_change_target(change_request):
         ProfileChangeRequest.ResourceType.SKILL: Skill,
         ProfileChangeRequest.ResourceType.HELP_OFFER: HelpOffer,
         ProfileChangeRequest.ResourceType.BIOGRAPHY: Biography,
-        ProfileChangeRequest.ResourceType.LIFE: LifeEvent,
+        ProfileChangeRequest.ResourceType.LIFE_EVENT: LifeEvent,
     }
 
     model = model_map.get(
@@ -64,7 +62,31 @@ def get_change_target(change_request):
         id=change_request.object_id
     ).first()
 
-@system_admin_required
+
+def get_change_person(change_request):
+    if (
+        change_request.action
+        == ProfileChangeRequest.Action.CREATE
+    ):
+        person_id = change_request.proposed_data.get(
+            "person_id"
+        )
+
+        if not person_id:
+            return None
+
+        return Person.objects.filter(
+            id=person_id
+        ).first()
+
+    target = get_change_target(change_request)
+
+    if target is None:
+        return None
+
+    return target.person
+
+
 @system_admin_required
 def change_request_list(request):
     change_requests = (
@@ -148,6 +170,8 @@ def approve_change_request(request, request_id):
     )
 
     data = change_request.proposed_data
+    audit_person = None
+    audit_object_id = change_request.object_id
 
     #
     # CREATE
@@ -165,7 +189,7 @@ def approve_change_request(request, request_id):
             change_request.resource_type
             == ProfileChangeRequest.ResourceType.EMPLOYMENT
         ):
-            Employment.objects.create(
+            target = Employment.objects.create(
                 person=person,
                 organization=data.get(
                     "organization",
@@ -199,7 +223,7 @@ def approve_change_request(request, request_id):
             change_request.resource_type
             == ProfileChangeRequest.ResourceType.EDUCATION
         ):
-            Education.objects.create(
+            target = Education.objects.create(
                 person=person,
                 institution=data.get(
                     "institution",
@@ -229,7 +253,7 @@ def approve_change_request(request, request_id):
             change_request.resource_type
             == ProfileChangeRequest.ResourceType.SKILL
         ):
-            Skill.objects.create(
+            target = Skill.objects.create(
                 person=person,
                 name=data.get(
                     "name",
@@ -244,7 +268,7 @@ def approve_change_request(request, request_id):
                 change_request.resource_type
                 == ProfileChangeRequest.ResourceType.HELP_OFFER
         ):
-            HelpOffer.objects.create(
+            target = HelpOffer.objects.create(
                 person=person,
                 title=data.get(
                     "title",
@@ -272,7 +296,7 @@ def approve_change_request(request, request_id):
                 id=data["person_id"],
             )
 
-            Biography.objects.create(
+            target = Biography.objects.create(
                 person=person,
                 text=data["text"],
                 created_by=change_request.requested_by,
@@ -286,7 +310,7 @@ def approve_change_request(request, request_id):
                 id=data["person_id"],
             )
 
-            LifeEvent.objects.create(
+            target = LifeEvent.objects.create(
                 person=person,
                 event_type=data["event_type"],
                 title=data["title"],
@@ -310,6 +334,9 @@ def approve_change_request(request, request_id):
                 "Неизвестный тип создаваемых данных."
             )
 
+        audit_person = person
+        audit_object_id = target.id
+
     #
     # EDIT / DELETE
     #
@@ -322,6 +349,9 @@ def approve_change_request(request, request_id):
             raise PermissionDenied(
                 "Исходная запись не существует."
             )
+
+        audit_person = target.person
+        audit_object_id = target.id
 
         if (
             change_request.action
@@ -501,6 +531,24 @@ def approve_change_request(request, request_id):
         ]
     )
 
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.APPROVE_CHANGE,
+        person=audit_person,
+        resource_type=change_request.resource_type,
+        object_id=audit_object_id,
+        details={
+            "request_id": str(change_request.id),
+            "requester_id": str(change_request.requested_by_id),
+            "change_action": change_request.action,
+            "target_id": (
+                str(audit_object_id)
+                if audit_object_id is not None
+                else None
+            ),
+        },
+    )
+
     return redirect(
         "profiles:change_request_list"
     )
@@ -513,6 +561,10 @@ def reject_change_request(request, request_id):
         ProfileChangeRequest.objects.select_for_update(),
         id=request_id,
         status=ProfileChangeRequest.Status.PENDING,
+    )
+
+    audit_person = get_change_person(
+        change_request
     )
 
     change_request.status = (
@@ -528,6 +580,24 @@ def reject_change_request(request, request_id):
             "reviewed_by",
             "reviewed_at",
         ]
+    )
+
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.REJECT_CHANGE,
+        person=audit_person,
+        resource_type=change_request.resource_type,
+        object_id=change_request.object_id,
+        details={
+            "request_id": str(change_request.id),
+            "requester_id": str(change_request.requested_by_id),
+            "change_action": change_request.action,
+            "target_id": (
+                str(change_request.object_id)
+                if change_request.object_id is not None
+                else None
+            ),
+        },
     )
 
     return redirect(
@@ -553,7 +623,7 @@ def add_employment(request, person_id):
         form = EmploymentForm(request.POST)
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EMPLOYMENT
                 ),
@@ -630,7 +700,7 @@ def add_education(request, person_id):
         form = EducationForm(request.POST)
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EDUCATION
                 ),
@@ -703,7 +773,7 @@ def add_skill(request, person_id):
         form = SkillForm(request.POST)
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.SKILL
                 ),
@@ -762,7 +832,6 @@ def edit_employment(request, employment_id):
     pending_request = ProfileChangeRequest.objects.filter(
         resource_type=ProfileChangeRequest.ResourceType.EMPLOYMENT,
         object_id=employment.id,
-        action=ProfileChangeRequest.Action.EDIT,
         status=ProfileChangeRequest.Status.PENDING,
     ).first()
 
@@ -787,7 +856,7 @@ def edit_employment(request, employment_id):
             # ВАЖНО:
             # здесь НЕТ form.save()
 
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EMPLOYMENT
                 ),
@@ -849,7 +918,6 @@ def edit_education(request, education_id):
     pending_request = ProfileChangeRequest.objects.filter(
         resource_type=ProfileChangeRequest.ResourceType.EDUCATION,
         object_id=education.id,
-        action=ProfileChangeRequest.Action.EDIT,
         status=ProfileChangeRequest.Status.PENDING,
     ).first()
 
@@ -871,7 +939,7 @@ def edit_education(request, education_id):
 
         if form.is_valid():
 
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EDUCATION
                 ),
@@ -925,7 +993,6 @@ def edit_skill(request, skill_id):
     pending_request = ProfileChangeRequest.objects.filter(
         resource_type=ProfileChangeRequest.ResourceType.SKILL,
         object_id=skill.id,
-        action=ProfileChangeRequest.Action.EDIT,
         status=ProfileChangeRequest.Status.PENDING,
     ).first()
 
@@ -947,7 +1014,7 @@ def edit_skill(request, skill_id):
 
         if form.is_valid():
 
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.SKILL
                 ),
@@ -997,7 +1064,6 @@ def delete_employment(request, employment_id):
     pending_request = ProfileChangeRequest.objects.filter(
         resource_type=ProfileChangeRequest.ResourceType.EMPLOYMENT,
         object_id=employment.id,
-        action=ProfileChangeRequest.Action.DELETE,
         status=ProfileChangeRequest.Status.PENDING,
     ).first()
 
@@ -1012,7 +1078,7 @@ def delete_employment(request, employment_id):
         )
 
     if request.method == "POST":
-        ProfileChangeRequest.objects.create(
+        submit_change_request(
             resource_type=ProfileChangeRequest.ResourceType.EMPLOYMENT,
             object_id=employment.id,
             action=ProfileChangeRequest.Action.DELETE,
@@ -1051,7 +1117,6 @@ def delete_education(request, education_id):
     pending_request = ProfileChangeRequest.objects.filter(
         resource_type=ProfileChangeRequest.ResourceType.EDUCATION,
         object_id=education.id,
-        action=ProfileChangeRequest.Action.DELETE,
         status=ProfileChangeRequest.Status.PENDING,
     ).first()
 
@@ -1066,7 +1131,7 @@ def delete_education(request, education_id):
         )
 
     if request.method == "POST":
-        ProfileChangeRequest.objects.create(
+        submit_change_request(
             resource_type=ProfileChangeRequest.ResourceType.EDUCATION,
             object_id=education.id,
             action=ProfileChangeRequest.Action.DELETE,
@@ -1105,7 +1170,6 @@ def delete_skill(request, skill_id):
     pending_request = ProfileChangeRequest.objects.filter(
         resource_type=ProfileChangeRequest.ResourceType.SKILL,
         object_id=skill.id,
-        action=ProfileChangeRequest.Action.DELETE,
         status=ProfileChangeRequest.Status.PENDING,
     ).first()
 
@@ -1120,7 +1184,7 @@ def delete_skill(request, skill_id):
         )
 
     if request.method == "POST":
-        ProfileChangeRequest.objects.create(
+        submit_change_request(
             resource_type=ProfileChangeRequest.ResourceType.SKILL,
             object_id=skill.id,
             action=ProfileChangeRequest.Action.DELETE,

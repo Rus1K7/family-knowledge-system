@@ -2,4 +2,7 @@ from django.apps import AppConfig
 
 
 class ProfilesConfig(AppConfig):
-    name = 'profiles'
+    name = "profiles"
+
+    def ready(self):
+        from . import signals  # noqa: F401

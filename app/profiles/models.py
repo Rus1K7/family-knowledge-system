@@ -1,6 +1,7 @@
 import uuid
 
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 
 from family.models import Person
@@ -179,6 +180,7 @@ class Skill(models.Model):
     def __str__(self):
         return f"{self.person}: {self.name}"
 
+
 class ProfileChangeRequest(models.Model):
     class Action(models.TextChoices):
         CREATE = "CREATE", _("Добавление")
@@ -198,6 +200,17 @@ class ProfileChangeRequest(models.Model):
         HELP_OFFER = "HELP_OFFER", _("Предложение помощи")
         BIOGRAPHY = "BIOGRAPHY", _("Биография")
         LIFE_EVENT = "LIFE_EVENT", _("Событие жизни")
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            return super().save(*args, **kwargs)
+
+        # Создание заявки и post_save-аудит должны либо
+        # сохраниться вместе, либо вместе откатиться.
+        with transaction.atomic(
+            using=kwargs.get("using"),
+        ):
+            return super().save(*args, **kwargs)
 
     id = models.UUIDField(
         primary_key=True,
@@ -272,6 +285,16 @@ class ProfileChangeRequest(models.Model):
         verbose_name = _("Запрос на изменение")
         verbose_name_plural = _("Запросы на изменения")
         ordering = ["-requested_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["resource_type", "object_id"],
+                condition=Q(
+                    status="PENDING",
+                    object_id__isnull=False,
+                ),
+                name="unique_pending_change_request_per_resource",
+            ),
+        ]
 
     def __str__(self):
         return (

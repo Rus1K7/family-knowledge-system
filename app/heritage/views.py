@@ -1,25 +1,34 @@
+import logging
+
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.http import FileResponse, Http404
 from django.shortcuts import (
     get_object_or_404,
     redirect,
     render,
 )
+from django.utils import timezone
+from django.views.decorators.http import require_POST
 
+from audit.models import AuditEvent
+from audit.services import log_audit_event
 from family.models import Person
-from family.permissions import can_manage_person
+from family.permissions import can_manage_person, is_system_admin
 from profiles.models import ProfileChangeRequest
+from profiles.services import submit_change_request
 from privacy.models import PrivacyPolicy
-
-from django.http import FileResponse, Http404
 
 from .forms import (
     BiographyForm,
     ExistingSourceLinkForm,
     LifeEventForm,
     SourceCreateForm,
+    SourceEditForm,
     VerificationForm,
     MediaAssetUploadForm,
+    MediaAssetMetadataForm,
 )
 
 from .models import (
@@ -28,22 +37,13 @@ from .models import (
     SourceLink,
     Verification,
     MediaAsset,
+    Source,
 )
 
-from django.utils import timezone
-from .permissions import can_verify_heritage
+from .permissions import can_verify_heritage, can_view_media
 
-from django.db import transaction
-from django.views.decorators.http import require_POST
 
-from family.permissions import (
-    can_manage_person,
-    is_system_admin,
-)
-from privacy.permissions import can_view_resource
-
-from audit.models import AuditEvent
-from audit.services import log_audit_event
+logger = logging.getLogger(__name__)
 
 HERITAGE_RESOURCE_MODELS = {
     SourceLink.ResourceType.BIOGRAPHY: Biography,
@@ -68,6 +68,25 @@ def get_heritage_resource(
         model,
         id=object_id,
     )
+
+
+def get_source_person(source):
+    for link in source.links.all():
+        model = HERITAGE_RESOURCE_MODELS.get(link.resource_type)
+        if model is None:
+            continue
+
+        resource = (
+            model.objects
+            .select_related("person")
+            .filter(id=link.object_id)
+            .first()
+        )
+        if resource is not None:
+            return resource.person
+
+    return None
+
 
 def serialize_date(value):
     if value is None:
@@ -128,7 +147,7 @@ def add_biography(request, person_id):
         )
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.BIOGRAPHY
                 ),
@@ -199,7 +218,7 @@ def edit_biography(request, biography_id):
         )
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.BIOGRAPHY
                 ),
@@ -247,16 +266,13 @@ def delete_biography(request, biography_id):
         )
 
     if request.method == "POST":
-        ProfileChangeRequest.objects.get_or_create(
+        submit_change_request(
             resource_type=(
                 ProfileChangeRequest.ResourceType.BIOGRAPHY
             ),
             object_id=biography.id,
             action=ProfileChangeRequest.Action.DELETE,
-            status=ProfileChangeRequest.Status.PENDING,
-            defaults={
-                "requested_by": request.user,
-            },
+            requested_by=request.user,
         )
 
         return redirect(
@@ -293,7 +309,7 @@ def add_life_event(request, person_id):
         )
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.LIFE_EVENT
                 ),
@@ -377,7 +393,7 @@ def edit_life_event(request, event_id):
         )
 
         if form.is_valid():
-            ProfileChangeRequest.objects.create(
+            submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.LIFE_EVENT
                 ),
@@ -438,16 +454,13 @@ def delete_life_event(request, event_id):
         raise PermissionDenied
 
     if request.method == "POST":
-        ProfileChangeRequest.objects.get_or_create(
+        submit_change_request(
             resource_type=(
                 ProfileChangeRequest.ResourceType.LIFE_EVENT
             ),
             object_id=event.id,
             action=ProfileChangeRequest.Action.DELETE,
-            status=ProfileChangeRequest.Status.PENDING,
-            defaults={
-                "requested_by": request.user,
-            },
+            requested_by=request.user,
         )
 
         return redirect(
@@ -464,6 +477,7 @@ def delete_life_event(request, event_id):
             "title": "Запросить удаление события",
         },
     )
+
 
 @login_required
 @transaction.atomic
@@ -487,7 +501,10 @@ def create_source_for_resource(
 
     if request.method == "POST":
         form = SourceCreateForm(
-            request.POST
+            request.POST,
+            user=request.user,
+            person=resource.person,
+            lock_document=True,
         )
 
         if form.is_valid():
@@ -498,7 +515,7 @@ def create_source_for_resource(
             source.created_by = request.user
             source.save()
 
-            SourceLink.objects.create(
+            source_link = SourceLink.objects.create(
                 source=source,
                 resource_type=resource_type,
                 object_id=resource.id,
@@ -511,13 +528,32 @@ def create_source_for_resource(
                 created_by=request.user,
             )
 
+            log_audit_event(
+                actor=request.user,
+                action=AuditEvent.Action.CREATE_SOURCE,
+                person=resource.person,
+                resource_type=resource_type,
+                object_id=resource.id,
+                details={
+                    "source_id": str(source.id),
+                    "source_link_id": str(source_link.id),
+                    "source_type": source.source_type,
+                    "relation_type": source_link.relation_type,
+                    **(
+                        {"document_id": str(source.document_id)}
+                        if source.document_id is not None
+                        else {}
+                    ),
+                },
+            )
+
             return redirect(
                 "family:person_detail",
                 person_id=resource.person.id,
             )
 
     else:
-        form = SourceCreateForm()
+        form = SourceCreateForm(user=request.user, person=resource.person)
 
     return render(
         request,
@@ -529,6 +565,141 @@ def create_source_for_resource(
             "title": "Добавить новый источник",
         },
     )
+
+
+@login_required
+@transaction.atomic
+def edit_source(request, source_id):
+    source = get_object_or_404(
+        Source.objects.select_for_update(),
+        id=source_id,
+    )
+
+    if source.status == Source.Status.ARCHIVED:
+        raise Http404
+
+    if not (
+        is_system_admin(request.user)
+        or source.created_by_id == request.user.id
+    ):
+        raise PermissionDenied(
+            "Только автор источника или администратор может его изменять."
+        )
+
+    person = get_source_person(source)
+    editable_fields = [
+        "source_type",
+        "title",
+        "author",
+        "source_date",
+        "url",
+        "citation",
+        "notes",
+    ]
+    old_values = {
+        field_name: getattr(source, field_name)
+        for field_name in editable_fields
+    }
+
+    if request.method == "POST":
+        form = SourceEditForm(request.POST, instance=source)
+
+        if form.is_valid():
+            changed_fields = [
+                field_name
+                for field_name in editable_fields
+                if old_values[field_name]
+                != form.cleaned_data[field_name]
+            ]
+
+            form.save()
+
+            if changed_fields:
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.UPDATE_SOURCE,
+                    person=person,
+                    resource_type="SOURCE",
+                    object_id=source.id,
+                    details={
+                        "source_id": str(source.id),
+                        "changed_fields": sorted(changed_fields),
+                    },
+                )
+
+            if person is not None:
+                return redirect(
+                    "family:person_detail",
+                    person_id=person.id,
+                )
+
+            return redirect("family:home")
+
+    else:
+        form = SourceEditForm(instance=source)
+
+    return render(
+        request,
+        "heritage/source_form.html",
+        {
+            "form": form,
+            "resource": source,
+            "person": person,
+            "title": "Изменить источник",
+        },
+    )
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def archive_source(request, source_id):
+    source = get_object_or_404(
+        Source.objects.select_for_update(),
+        id=source_id,
+    )
+
+    if not (
+        is_system_admin(request.user)
+        or source.created_by_id == request.user.id
+    ):
+        raise PermissionDenied(
+            "Только автор источника или администратор может его архивировать."
+        )
+
+    if source.status == Source.Status.ARCHIVED:
+        person = get_source_person(source)
+        if person is not None:
+            return redirect(
+                "family:person_detail",
+                person_id=person.id,
+            )
+        return redirect("family:home")
+
+    person = get_source_person(source)
+    source.status = Source.Status.ARCHIVED
+    source.save(update_fields=["status", "updated_at"])
+
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.ARCHIVE_SOURCE,
+        person=person,
+        resource_type="SOURCE",
+        object_id=source.id,
+        details={
+            "source_id": str(source.id),
+            "previous_status": Source.Status.ACTIVE,
+            "status": source.status,
+        },
+    )
+
+    if person is not None:
+        return redirect(
+            "family:person_detail",
+            person_id=person.id,
+        )
+
+    return redirect("family:home")
 
 @login_required
 @transaction.atomic
@@ -552,7 +723,10 @@ def attach_existing_source(
 
     if request.method == "POST":
         form = ExistingSourceLinkForm(
-            request.POST
+            request.POST,
+            user=request.user,
+            person=resource.person,
+            lock_source=True,
         )
 
         if form.is_valid():
@@ -560,23 +734,73 @@ def attach_existing_source(
                 "source"
             ]
 
-            SourceLink.objects.update_or_create(
-                source=source,
-                resource_type=resource_type,
-                object_id=resource.id,
-                defaults={
-                    "relation_type":
-                        form.cleaned_data[
-                            "relation_type"
-                        ],
-                    "note":
-                        form.cleaned_data[
-                            "note"
-                        ],
-                    "created_by":
-                        request.user,
-                },
+            relation_type = form.cleaned_data[
+                "relation_type"
+            ]
+            note = form.cleaned_data["note"]
+
+            source_link, created = (
+                SourceLink.objects.update_or_create(
+                    source=source,
+                    resource_type=resource_type,
+                    object_id=resource.id,
+                    defaults={},
+                    create_defaults={
+                        "relation_type":
+                            relation_type,
+                        "note": note,
+                        "created_by":
+                            request.user,
+                    },
+                )
             )
+
+            if created:
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.ATTACH_SOURCE,
+                    person=resource.person,
+                    resource_type=resource_type,
+                    object_id=resource.id,
+                    details={
+                        "source_id": str(source.id),
+                        "source_link_id": str(source_link.id),
+                        "relation_type": source_link.relation_type,
+                    },
+                )
+
+            else:
+                changed_fields = []
+
+                if source_link.relation_type != relation_type:
+                    source_link.relation_type = relation_type
+                    changed_fields.append("relation_type")
+
+                if source_link.note != note:
+                    source_link.note = note
+                    changed_fields.append("note")
+
+                if changed_fields:
+                    source_link.save(
+                        update_fields=changed_fields,
+                    )
+
+                    log_audit_event(
+                        actor=request.user,
+                        action=(
+                            AuditEvent.Action.UPDATE_SOURCE_LINK
+                        ),
+                        person=resource.person,
+                        resource_type=resource_type,
+                        object_id=resource.id,
+                        details={
+                            "source_id": str(source.id),
+                            "source_link_id": str(source_link.id),
+                            "changed_fields": sorted(
+                                changed_fields
+                            ),
+                        },
+                    )
 
             return redirect(
                 "family:person_detail",
@@ -584,7 +808,7 @@ def attach_existing_source(
             )
 
     else:
-        form = ExistingSourceLinkForm()
+        form = ExistingSourceLinkForm(user=request.user, person=resource.person)
 
     return render(
         request,
@@ -597,6 +821,7 @@ def attach_existing_source(
                 "Привязать существующий источник",
         },
     )
+
 
 @login_required
 @require_POST
@@ -624,13 +849,28 @@ def detach_source(
         )
 
     person_id = resource.person.id
+    audit_details = {
+        "source_id": str(link.source_id),
+        "source_link_id": str(link.id),
+        "relation_type": link.relation_type,
+    }
 
     link.delete()
+
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.DETACH_SOURCE,
+        person=resource.person,
+        resource_type=link.resource_type,
+        object_id=resource.id,
+        details=audit_details,
+    )
 
     return redirect(
         "family:person_detail",
         person_id=person_id,
     )
+
 
 @login_required
 @transaction.atomic
@@ -651,16 +891,30 @@ def verify_resource(
             "У вас нет права проверять исторические данные."
         )
 
-    verification, created = (
-        Verification.objects.get_or_create(
+    verification_queryset = Verification.objects
+
+    if request.method == "POST":
+        verification_queryset = (
+            verification_queryset.select_for_update()
+        )
+
+    verification = verification_queryset.filter(
+        resource_type=resource_type,
+        object_id=resource.id,
+    ).first()
+
+    previous_status = (
+        verification.status
+        if verification is not None
+        else None
+    )
+
+    if verification is None:
+        verification = Verification(
             resource_type=resource_type,
             object_id=resource.id,
-            defaults={
-                "status":
-                    Verification.Status.PENDING,
-            },
+            status=Verification.Status.PENDING,
         )
-    )
 
     if request.method == "POST":
         form = VerificationForm(
@@ -689,6 +943,11 @@ def verify_resource(
                 person=resource.person,
                 resource_type=resource_type,
                 object_id=resource.id,
+                details={
+                    "verification_id": str(verification.id),
+                    "previous_status": previous_status,
+                    "current_status": verification.status,
+                },
             )
 
             return redirect(
@@ -755,7 +1014,7 @@ def upload_media_asset(request, person_id):
             media_asset.mime_type = (
                 getattr(
                     uploaded_file,
-                    "content_type",
+                    "verified_content_type",
                     "",
                 )
             )
@@ -768,20 +1027,64 @@ def upload_media_asset(request, person_id):
                 MediaAsset.Status.PENDING
             )
 
-            media_asset.save()
+            stored_file_name = ""
 
-            PrivacyPolicy.objects.get_or_create(
-                person=person,
-                resource_type=(
-                    PrivacyPolicy.ResourceType.MEDIA_ASSET
-                ),
-                object_id=media_asset.id,
-                defaults={
-                    "visibility":
-                        PrivacyPolicy.Visibility.FAMILY,
-                    "show_existence": True,
-                },
-            )
+            try:
+                media_asset.save()
+                stored_file_name = media_asset.file.name
+
+                PrivacyPolicy.objects.get_or_create(
+                    person=person,
+                    resource_type=(
+                        PrivacyPolicy.ResourceType.MEDIA_ASSET
+                    ),
+                    object_id=media_asset.id,
+                    defaults={
+                        "visibility":
+                            PrivacyPolicy.Visibility.FAMILY,
+                        "show_existence": True,
+                    },
+                )
+
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.UPLOAD_MEDIA,
+                    person=person,
+                    resource_type="MEDIA_ASSET",
+                    object_id=media_asset.id,
+                    details={
+                        "media_type": media_asset.media_type,
+                        "mime_type": media_asset.mime_type,
+                        "file_size": media_asset.file_size,
+                        "status": media_asset.status,
+                    },
+                )
+
+            except Exception:
+                if (
+                    not stored_file_name
+                    and getattr(
+                        media_asset.file,
+                        "_committed",
+                        False,
+                    )
+                ):
+                    stored_file_name = (
+                        media_asset.file.name
+                    )
+
+                if stored_file_name:
+                    try:
+                        media_asset.file.storage.delete(
+                            stored_file_name
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Не удалось удалить файл "
+                            "после ошибки загрузки."
+                        )
+
+                raise
 
             return redirect(
                 "family:person_detail",
@@ -811,31 +1114,8 @@ def serve_media_asset(request, media_id):
 
     person = media_asset.person
 
-    can_manage = can_manage_person(
-        request.user,
-        person,
-    )
-
-    if (
-        media_asset.status
-        != MediaAsset.Status.APPROVED
-        and not can_manage
-        and not is_system_admin(request.user)
-    ):
+    if not can_view_media(request.user, media_asset):
         raise Http404
-
-    if not can_manage and not is_system_admin(
-        request.user
-    ):
-        can_view = can_view_resource(
-            request.user,
-            person,
-            PrivacyPolicy.ResourceType.MEDIA_ASSET,
-            media_asset.id,
-        )
-
-        if not can_view:
-            raise Http404
 
     if not media_asset.file:
         raise Http404
@@ -1001,4 +1281,112 @@ def reject_media_asset(request, media_id):
 
     return redirect(
         "heritage:media_moderation_list"
+    )
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def archive_media_asset(request, media_id):
+    media_asset = get_object_or_404(
+        MediaAsset.objects.select_for_update().select_related("person"),
+        id=media_id,
+    )
+
+    if not can_manage_person(request.user, media_asset.person):
+        raise PermissionDenied(
+            "У вас нет права архивировать этот файл."
+        )
+
+    if media_asset.status == MediaAsset.Status.ARCHIVED:
+        return redirect(
+            "family:person_detail",
+            person_id=media_asset.person_id,
+        )
+
+    previous_status = media_asset.status
+    media_asset.status = MediaAsset.Status.ARCHIVED
+    media_asset.save(update_fields=["status", "updated_at"])
+
+    log_audit_event(
+        actor=request.user,
+        action=AuditEvent.Action.ARCHIVE_MEDIA,
+        person=media_asset.person,
+        resource_type="MEDIA_ASSET",
+        object_id=media_asset.id,
+        details={
+            "previous_status": previous_status,
+            "status": media_asset.status,
+        },
+    )
+
+    return redirect(
+        "family:person_detail",
+        person_id=media_asset.person_id,
+    )
+
+
+@login_required
+@transaction.atomic
+def edit_media_asset(request, media_id):
+    media_asset = get_object_or_404(
+        MediaAsset.objects.select_for_update().select_related("person"),
+        id=media_id,
+    )
+
+    if media_asset.status == MediaAsset.Status.ARCHIVED:
+        raise Http404
+
+    if not can_manage_person(request.user, media_asset.person):
+        raise PermissionDenied(
+            "У вас нет права изменять этот файл."
+        )
+
+    old_values = {
+        "title": media_asset.title,
+        "description": media_asset.description,
+    }
+
+    if request.method == "POST":
+        form = MediaAssetMetadataForm(
+            request.POST,
+            instance=media_asset,
+        )
+
+        if form.is_valid():
+            changed_fields = [
+                field_name
+                for field_name, old_value in old_values.items()
+                if old_value != form.cleaned_data[field_name]
+            ]
+            form.save()
+
+            if changed_fields:
+                log_audit_event(
+                    actor=request.user,
+                    action=AuditEvent.Action.UPDATE_MEDIA,
+                    person=media_asset.person,
+                    resource_type="MEDIA_ASSET",
+                    object_id=media_asset.id,
+                    details={
+                        "media_id": str(media_asset.id),
+                        "changed_fields": sorted(changed_fields),
+                    },
+                )
+
+            return redirect(
+                "family:person_detail",
+                person_id=media_asset.person_id,
+            )
+    else:
+        form = MediaAssetMetadataForm(instance=media_asset)
+
+    return render(
+        request,
+        "profiles/form.html",
+        {
+            "form": form,
+            "person": media_asset.person,
+            "title": "Изменить описание файла",
+        },
     )

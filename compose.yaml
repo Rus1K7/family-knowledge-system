@@ -41,5 +41,12 @@ services:
       db:
         condition: service_healthy
 
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
 volumes:
   postgres_data:

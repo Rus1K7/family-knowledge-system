@@ -8,6 +8,7 @@ def log_audit_event(
     person=None,
     resource_type="",
     object_id=None,
+    details=None,
 ):
     if actor is not None and not actor.is_authenticated:
         actor = None
@@ -18,4 +19,9 @@ def log_audit_event(
         person=person,
         resource_type=resource_type,
         object_id=object_id,
+        details=(
+            details
+            if details is not None
+            else {}
+        ),
     )

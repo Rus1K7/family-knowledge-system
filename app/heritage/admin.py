@@ -49,9 +49,13 @@ class LifeEventAdmin(admin.ModelAdmin):
 
 @admin.register(Source)
 class SourceAdmin(admin.ModelAdmin):
+    # A private file is selected through the profile form with object permissions.
+    readonly_fields = ("document",)
+
     list_display = (
         "title",
         "source_type",
+        "status",
         "author",
         "source_date",
         "created_by",
@@ -59,6 +63,7 @@ class SourceAdmin(admin.ModelAdmin):
 
     list_filter = (
         "source_type",
+        "status",
     )
 
     search_fields = (
@@ -99,32 +104,32 @@ class VerificationAdmin(admin.ModelAdmin):
         "status",
     )
 
-    @admin.register(MediaAsset)
-    class MediaAssetAdmin(admin.ModelAdmin):
-        list_display = (
-            "title",
-            "person",
-            "media_type",
-            "status",
-            "uploaded_by",
-            "created_at",
-        )
+@admin.register(MediaAsset)
+class MediaAssetAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "person",
+        "media_type",
+        "status",
+        "uploaded_by",
+        "created_at",
+    )
 
-        list_filter = (
-            "media_type",
-            "status",
-        )
+    list_filter = (
+        "media_type",
+        "status",
+    )
 
-        search_fields = (
-            "title",
-            "person__first_name",
-            "person__last_name",
-        )
+    search_fields = (
+        "title",
+        "person__first_name",
+        "person__last_name",
+    )
 
-        readonly_fields = (
-            "original_filename",
-            "mime_type",
-            "file_size",
-            "created_at",
-            "updated_at",
-        )
+    readonly_fields = (
+        "original_filename",
+        "mime_type",
+        "file_size",
+        "created_at",
+        "updated_at",
+    )

@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="ru">
 
@@ -5,31 +6,8 @@
     <meta charset="UTF-8">
 
     <title>Семейное дерево</title>
-    {% if request.user.is_superuser or request.user.system_role == "SYSTEM_ADMIN" %}
 
-        <a href="{% url 'profiles:change_request_list' %}">
-            Запросы на изменения
-        </a>
-
-    {% endif %}
-
-    <div>
-        <a href="{% url 'family:my_profile' %}">
-            Мой профиль
-        </a>
-
-        <form
-            method="post"
-            action="{% url 'family:logout' %}"
-            style="display: inline;"
-        >
-            {% csrf_token %}
-
-            <button type="submit">
-                Выйти
-            </button>
-        </form>
-    </div>
+    <link rel="stylesheet" href="{% static 'family/family.css' %}">
 
     <script
         src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js">
@@ -66,10 +44,22 @@
             color: #777;
         }
 
+        .navigation {
+            margin-top: 16px;
+        }
+
+        .navigation a {
+            margin-right: 12px;
+        }
+
+        .admin-navigation {
+            margin-top: 14px;
+        }
+
         #family-tree {
             width: 100%;
 
-            height: calc(100vh - 90px);
+            height: calc(100vh - 160px);
 
             background: white;
         }
@@ -93,6 +83,8 @@
 
 <header>
 
+    <div class="brand-mark">⌂ <span>Семейный круг</span></div>
+
     <h1>
         Семейное дерево
     </h1>
@@ -101,19 +93,66 @@
         Нажмите на человека, чтобы открыть профиль
     </p>
 
+
+    <nav class="navigation" aria-label="Основная навигация">
+
+        <a class="nav-current" href="{% url 'family:home' %}">
+            Семья
+        </a>
+
+        <a href="#family-tree">
+            Дерево
+        </a>
+
+        <a href="{% url 'family:my_profile' %}">
+            Мой профиль
+        </a>
+
+        <form
+            method="post"
+            action="{% url 'family:logout' %}"
+            style="display: inline;"
+        >
+            {% csrf_token %}
+
+            <button type="submit">
+                Выйти
+            </button>
+        </form>
+
+    </nav>
+
+
     {% if request.user.is_staff %}
 
-        <p>
+        <div class="admin-navigation">
+
             <a href="{% url 'accounts:create_invitation' %}">
                 ✉️ Пригласить родственника
             </a>
 
-            ·
-
             <a href="{% url 'accounts:invitation_list' %}">
                 📋 Управление приглашениями
             </a>
-        </p>
+
+        </div>
+
+    {% endif %}
+
+
+    {% if can_admin %}
+
+        <div class="admin-navigation">
+
+            <a href="{% url 'profiles:change_request_list' %}">
+                📝 Запросы на изменения
+            </a>
+
+            <a href="{% url 'audit:event_list' %}">
+                🔎 Журнал действий
+            </a>
+
+        </div>
 
     {% endif %}
 
@@ -223,6 +262,15 @@
         nodes: {
             shape: "box",
 
+            color: {
+                background: "#fffdf8",
+                border: "#365b45",
+                highlight: {
+                    background: "#e4ecdf",
+                    border: "#8b5548"
+                }
+            },
+
             margin: {
                 top: 12,
                 right: 16,
@@ -231,7 +279,9 @@
             },
 
             font: {
-                size: 16
+                size: 16,
+                color: "#28392f",
+                face: "Georgia"
             },
 
             borderWidth: 1

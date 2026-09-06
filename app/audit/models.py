@@ -1,15 +1,29 @@
 import uuid
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 
 class AuditEvent(models.Model):
     class Action(models.TextChoices):
+        CREATE_PERSON = "CREATE_PERSON", _("Создание человека")
+        UPDATE_RELATIONSHIP = "UPDATE_RELATIONSHIP", _("Изменение родственной связи")
+        DELETE_RELATIONSHIP = "DELETE_RELATIONSHIP", _("Удаление родственной связи")
+        CREATE_RELATIONSHIP = (
+            "CREATE_RELATIONSHIP",
+            _("Создание родственной связи"),
+        )
+
         VIEW_PRIVATE_RESOURCE = (
             "VIEW_PRIVATE_RESOURCE",
             _("Просмотр закрытых данных"),
+        )
+
+        UPLOAD_MEDIA = (
+            "UPLOAD_MEDIA",
+            _("Загрузка файла"),
         )
 
         VIEW_MEDIA = (
@@ -27,9 +41,84 @@ class AuditEvent(models.Model):
             _("Отклонение файла"),
         )
 
+        ARCHIVE_MEDIA = (
+            "ARCHIVE_MEDIA",
+            _("Архивирование файла"),
+        )
+
+        UPDATE_MEDIA = (
+            "UPDATE_MEDIA",
+            _("Изменение описания файла"),
+        )
+
         VERIFY_HERITAGE = (
             "VERIFY_HERITAGE",
             _("Проверка исторических данных"),
+        )
+
+        CREATE_SOURCE = (
+            "CREATE_SOURCE",
+            _("Создание источника"),
+        )
+
+        UPDATE_SOURCE = (
+            "UPDATE_SOURCE",
+            _("Изменение источника"),
+        )
+
+        ARCHIVE_SOURCE = (
+            "ARCHIVE_SOURCE",
+            _("Архивирование источника"),
+        )
+
+        ATTACH_SOURCE = (
+            "ATTACH_SOURCE",
+            _("Привязка источника"),
+        )
+
+        UPDATE_SOURCE_LINK = (
+            "UPDATE_SOURCE_LINK",
+            _("Изменение связи с источником"),
+        )
+
+        DETACH_SOURCE = (
+            "DETACH_SOURCE",
+            _("Отвязка источника"),
+        )
+
+        UPDATE_PRIVACY_POLICY = (
+            "UPDATE_PRIVACY_POLICY",
+            _("Изменение приватности"),
+        )
+
+        REQUEST_ACCESS = (
+            "REQUEST_ACCESS",
+            _("Запрос доступа"),
+        )
+
+        REJECT_ACCESS = (
+            "REJECT_ACCESS",
+            _("Отклонение запроса доступа"),
+        )
+
+        CREATE_INVITATION = (
+            "CREATE_INVITATION",
+            _("Создание приглашения"),
+        )
+
+        ACCEPT_INVITATION = (
+            "ACCEPT_INVITATION",
+            _("Принятие приглашения"),
+        )
+
+        CANCEL_INVITATION = (
+            "CANCEL_INVITATION",
+            _("Отмена приглашения"),
+        )
+
+        REQUEST_CHANGE = (
+            "REQUEST_CHANGE",
+            _("Создание заявки на изменение"),
         )
 
         GRANT_ACCESS = (
@@ -92,6 +181,13 @@ class AuditEvent(models.Model):
         _("ID объекта"),
         null=True,
         blank=True,
+    )
+
+    details = models.JSONField(
+        _("Контекст"),
+        default=dict,
+        blank=True,
+        encoder=DjangoJSONEncoder,
     )
 
     created_at = models.DateTimeField(

@@ -1,6 +1,7 @@
 from django import forms
 
-from .models import Person
+from .models import Person, Relationship
+from .relationships import validate_ancestry
 
 
 class AddRelativeForm(forms.Form):
@@ -54,6 +55,7 @@ class AddRelativeForm(forms.Form):
 
     def __init__(self, *args, current_person=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.current_person = current_person
 
         queryset = Person.objects.all()
 
@@ -76,4 +78,36 @@ class AddRelativeForm(forms.Form):
                 "или укажите имя нового родственника."
             )
 
+        relation_type = cleaned_data.get("relation_type")
+        if existing and self.current_person and relation_type in {"PARENT", "CHILD"}:
+            parent, child = (
+                (existing, self.current_person)
+                if relation_type == "PARENT"
+                else (self.current_person, existing)
+            )
+            validate_ancestry(parent.id, child.id)
+
         return cleaned_data
+
+
+class RelationshipAdminForm(forms.ModelForm):
+    class Meta:
+        model = Relationship
+        fields = ["person_a", "person_b", "relationship_type", "status"]
+
+    def clean(self):
+        data = super().clean()
+        a, b, kind = data.get("person_a"), data.get("person_b"), data.get("relationship_type")
+        if not a or not b or not kind:
+            return data
+        if a.pk == b.pk:
+            raise forms.ValidationError("Нельзя связать человека с самим собой.")
+        existing = Relationship.objects.filter(relationship_type=kind).exclude(pk=self.instance.pk)
+        duplicate = existing.filter(person_a=a, person_b=b).exists()
+        if kind in {Relationship.Type.SPOUSE, Relationship.Type.PARTNER, Relationship.Type.SIBLING}:
+            duplicate = duplicate or existing.filter(person_a=b, person_b=a).exists()
+        if duplicate:
+            raise forms.ValidationError("Такая родственная связь уже существует.")
+        if kind in {Relationship.Type.PARENT_CHILD, Relationship.Type.ADOPTIVE_PARENT}:
+            validate_ancestry(a.pk, b.pk, exclude_id=self.instance.pk)
+        return data

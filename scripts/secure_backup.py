@@ -20,7 +20,10 @@ from zoneinfo import ZoneInfo
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.backup import BackupError, PROJECT, create_backup, digest, run, verify_backup
+from scripts.backup import (
+    BackupError, PROJECT, PRODUCTION_OUTPUT as RAW_PRODUCTION_OUTPUT,
+    backup_source, create_backup, digest, run, verify_backup,
+)
 from scripts.install_age import TARGET
 
 
@@ -30,6 +33,7 @@ KEY_DIRECTORY = PROJECT / "secrets"
 IDENTITY = KEY_DIRECTORY / "backup.agekey"
 RECIPIENT = KEY_DIRECTORY / "backup-recipient.txt"
 OUTPUT = PROJECT / "backups" / "encrypted"
+PRODUCTION_OUTPUT = RAW_PRODUCTION_OUTPUT / "encrypted"
 CONTENTS = {"database.dump", "media.tar", "manifest.json"}
 
 
@@ -121,13 +125,17 @@ def backup_lock(output):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def matching_daily_backup(output, date, recipient):
+def matching_daily_backup(output, date, recipient, *, production=False):
     state_path = output / ".daily.json"
     if not state_path.exists():
         return None
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
         name = state["archive"]
+        source = backup_source(production=production)
+        if state.get("source") != source:
+            # A legacy marker without a daemon fingerprint cannot identify its server.
+            return None
         if (
             state["date"] != date or state["recipient"] != recipient
             or not re.fullmatch(r"fks-\d{8}T\d{6}Z-[0-9a-f]{8}\.tar\.age", name)
@@ -135,19 +143,23 @@ def matching_daily_backup(output, date, recipient):
             return None
         archive = output / name
         if archive.is_file() and not archive.is_symlink() and digest(archive) == state["sha256"]:
+            if backup_source(production=production) != source:
+                raise BackupError("Источник Docker изменился во время проверки копии; повторите запуск.")
             return archive
     except (OSError, ValueError, KeyError, TypeError):
         return None
     return None
 
 
-def create_encrypted(output=OUTPUT, recipient_path=RECIPIENT, *, daily=False):
+def create_encrypted(output=None, recipient_path=RECIPIENT, *, daily=False, production=False):
+    if output is None:
+        output = PRODUCTION_OUTPUT if production else OUTPUT
     require_age()
     recipient = read_recipient(recipient_path)
     date = datetime.now(ZoneInfo("Europe/Moscow")).date().isoformat()
     with backup_lock(output):
         if daily:
-            previous = matching_daily_backup(output, date, recipient)
+            previous = matching_daily_backup(output, date, recipient, production=production)
             if previous is not None:
                 print(f"За сегодня копия уже создана и её целостность подтверждена: {previous}")
                 return previous
@@ -156,14 +168,21 @@ def create_encrypted(output=OUTPUT, recipient_path=RECIPIENT, *, daily=False):
         with tempfile.TemporaryDirectory(prefix=".secure-", dir=output) as temporary:
             temporary = Path(temporary)
             with redirect_stdout(io.StringIO()):
-                backup = create_backup(temporary / "raw")
+                if production:
+                    backup = create_backup(temporary / "raw", production=True)
+                else:
+                    backup = create_backup(temporary / "raw")
+            source = json.loads((backup / "manifest.json").read_text(encoding="utf-8")).get("source")
             encrypted = temporary / "encrypted.age"
             encrypt_backup(backup, recipient, encrypted)
             checksum = digest(encrypted)
+            if source != backup_source(production=production):
+                raise BackupError("Источник Docker изменился или не подтверждён; повторите копирование.")
             os.link(encrypted, final)
             state = {
                 "date": date, "archive": final.name,
                 "sha256": checksum, "recipient": recipient,
+                "source": source,
             }
             marker = temporary / "daily.json"
             marker.write_text(json.dumps(state) + "\n", encoding="utf-8")
@@ -212,6 +231,8 @@ def main():
     commands.add_parser("init", help="создать ключи без перезаписи существующих")
     create = commands.add_parser("create", help="создать зашифрованную копию")
     create.add_argument("--daily", action="store_true", help="не повторять успешное копирование за сегодня")
+    create.add_argument("--production", action="store_true", help="копировать проект family-production")
+    create.add_argument("--output", type=Path, help="каталог копий (production: backups/production/encrypted)")
     verify = commands.add_parser("verify", help="проверить расшифровку и полное восстановление")
     verify.add_argument("archive", type=Path)
     verify.add_argument("--identity", type=Path, default=IDENTITY)
@@ -221,7 +242,12 @@ def main():
         if args.action == "init":
             initialize_keys(KEY_DIRECTORY)
         elif args.action == "create":
-            create_encrypted(daily=args.daily)
+            options = {"daily": args.daily}
+            if args.production:
+                options["production"] = True
+            if args.output is not None:
+                options["output"] = args.output.resolve()
+            create_encrypted(**options)
         else:
             verify_encrypted(args.archive.resolve(), args.identity.resolve())
     except (BackupError, OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.TimeoutExpired) as error:

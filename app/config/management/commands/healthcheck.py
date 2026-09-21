@@ -4,6 +4,8 @@ import json
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from config.proxy_transport import loopback_proxy_v2
+
 
 class Command(BaseCommand):
     help = "Проверяет HTTP-ответ приложения и доступность базы для Docker."
@@ -20,6 +22,9 @@ class Command(BaseCommand):
             headers["X-Forwarded-Proto"] = "https"
         client = http.client.HTTPConnection("127.0.0.1", 8000, timeout=3)
         try:
+            if settings.PROXY_PROTOCOL_ENABLED:
+                client.connect()
+                client.send(loopback_proxy_v2())
             client.request("GET", "/health/", headers=headers)
             response = client.getresponse()
             if response.status != 200 or json.loads(response.read(1024)) != {"status": "ok"}:

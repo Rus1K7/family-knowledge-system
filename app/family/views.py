@@ -5,6 +5,8 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render
 
 from django.db import transaction
+from django.db.models import Q
+from django.core.paginator import Paginator
 from django.shortcuts import redirect
 
 from audit.models import AuditEvent
@@ -150,7 +152,35 @@ def build_generation_levels(persons, relationships):
 
 
 @login_required
+def requests_home(request):
+    if not (is_system_admin(request.user) or is_family_member(request.user)):
+        raise PermissionDenied("Доступ к семейному пространству не подтверждён.")
+    return render(request, "family/requests.html")
+
+
+@login_required
 def family_home(request):
+    if not (is_system_admin(request.user) or is_family_member(request.user)):
+        raise PermissionDenied("Доступ к семейному пространству не подтверждён.")
+    query = request.GET.get("q", "").strip()[:150]
+    people = Person.objects.order_by("last_name", "first_name", "id")
+    for word in query.split():
+        people = people.filter(
+            Q(first_name__icontains=word) | Q(last_name__icontains=word)
+            | Q(middle_name__icontains=word)
+        )
+    own_id = ProfileOwnership.objects.filter(
+        user=request.user, status=ProfileOwnership.Status.CONFIRMED,
+    ).values_list("person_id", flat=True).first()
+    return render(request, "family/directory.html", {
+        "page_obj": Paginator(people, 24).get_page(request.GET.get("page")),
+        "query": query, "own_person_id": own_id,
+        "can_admin": is_system_admin(request.user),
+    })
+
+
+@login_required
+def family_tree(request):
     if not (
         is_system_admin(request.user)
         or is_family_member(request.user)

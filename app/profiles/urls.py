@@ -7,6 +7,7 @@ app_name = "profiles"
 
 
 urlpatterns = [
+    path("changes/mine/", views.my_change_requests, name="my_change_requests"),
     path(
         "person/<uuid:person_id>/employment/add/",
         views.add_employment,

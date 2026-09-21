@@ -55,7 +55,16 @@ class ActivePasswordResetConfirmView(PasswordResetConfirmView):
                 response = super().dispatch(request, *args, **kwargs)
         except DatabaseError:
             response = recovery_unavailable(request)
-        response["Referrer-Policy"] = "no-referrer"
+        # The original email URL contains a secret and must never be referred.
+        # The valid form URL contains only the public "set-password" marker.
+        # HTTPS clients without Origin need a same-origin Referer for CSRF.
+        response["Referrer-Policy"] = (
+            "same-origin"
+            if kwargs.get("token") == self.reset_url_token
+            and getattr(self, "validlink", False)
+            and response.status_code == 200
+            else "no-referrer"
+        )
         return response
 
     def get_user(self, uidb64):

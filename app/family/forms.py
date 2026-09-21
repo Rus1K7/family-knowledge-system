@@ -1,7 +1,50 @@
 from django import forms
+from django.utils import timezone
+import uuid
 
-from .models import Person, Relationship
+from .models import Person, Relationship, RelativeProposal
 from .relationships import validate_ancestry
+
+
+class RelativeProposalForm(forms.ModelForm):
+    submission_id = forms.UUIDField(initial=uuid.uuid4, widget=forms.HiddenInput)
+
+    class Meta:
+        model = RelativeProposal
+        fields = ["relation_type", "first_name", "middle_name", "last_name", "birth_date",
+                  "is_living", "death_date", "biography", "invitation_email"]
+        widgets = {"birth_date": forms.DateInput(attrs={"type": "date"}),
+                   "death_date": forms.DateInput(attrs={"type": "date"}),
+                   "biography": forms.Textarea(attrs={"rows": 5})}
+
+    def clean(self):
+        data = super().clean()
+        today = timezone.localdate()
+        birth, death = data.get("birth_date"), data.get("death_date")
+        if birth and birth > today:
+            self.add_error("birth_date", "Дата рождения не может быть в будущем.")
+        if death and (death > today or (birth and death < birth)):
+            self.add_error("death_date", "Проверьте дату смерти: она не может быть раньше рождения или в будущем.")
+        if data.get("is_living") and death:
+            self.add_error("death_date", "Для живого человека дата смерти не указывается.")
+        if not data.get("is_living") and data.get("invitation_email"):
+            self.add_error("invitation_email", "Приглашение возможно только для живого человека.")
+        data["invitation_email"] = data.get("invitation_email", "").lower()
+        return data
+
+
+class RelativeReviewForm(forms.Form):
+    decision = forms.ChoiceField(choices=[("approve", "Одобрить"), ("reject", "Отклонить")])
+    email = forms.EmailField(label="Адрес приглашения", required=False)
+    send_invitation = forms.BooleanField(label="Отправить приглашение после одобрения", required=False)
+    comment = forms.CharField(label="Комментарий к решению", required=False, max_length=2000,
+                              widget=forms.Textarea(attrs={"rows": 3}))
+
+    def clean(self):
+        data = super().clean()
+        if data.get("decision") == "approve" and data.get("send_invitation") and not data.get("email"):
+            self.add_error("email", "Укажите адрес для приглашения или снимите отметку отправки.")
+        return data
 
 
 class AddRelativeForm(forms.Form):

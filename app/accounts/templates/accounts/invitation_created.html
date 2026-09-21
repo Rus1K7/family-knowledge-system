@@ -4,11 +4,14 @@
 
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
     <title>Приглашение создано</title>
 </head>
 
 <body>
+{% include 'family/navigation.html' %}
+<main class="content-page">
 
 <h1>Приглашение создано</h1>
 
@@ -31,9 +34,9 @@
 <p>
     <input
         type="text"
+        class="invite-created-url"
         value="{{ invitation_url }}"
         readonly
-        style="width: 600px;"
     >
 </p>
 
@@ -41,6 +44,7 @@
     Вернуться к дереву
 </a>
 
+</main>
 </body>
 
 </html>

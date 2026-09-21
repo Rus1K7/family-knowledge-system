@@ -4,11 +4,14 @@
 
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
     <title>Запросить доступ</title>
 </head>
 
 <body>
+{% include 'family/navigation.html' %}
+<main class="narrow-page">
 
 <a href="{% url 'family:person_detail' person.id %}">
     ← Назад
@@ -34,6 +37,7 @@
 
 </form>
 
+</main>
 </body>
 
 </html>

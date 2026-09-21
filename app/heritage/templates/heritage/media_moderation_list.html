@@ -4,7 +4,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
 
     <title>
         Проверка файлов
@@ -12,27 +13,22 @@
 </head>
 
 <body>
+{% include 'family/navigation.html' %}
+<main class="content-page">
 
-<a href="{% url 'family:home' %}">
-    ← Семейное дерево
+<a href="{% url 'family:requests' %}">
+    ← Заявки
 </a>
 
 
 <h1>
-    🗂 Файлы на проверке
+    Файлы на проверке
 </h1>
 
 
 {% for media in pending_media %}
 
-    <div
-        style="
-            margin-bottom: 30px;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 12px;
-        "
-    >
+    <div class="media-review-card">
 
         <h3>
             {{ media.title }}
@@ -87,7 +83,7 @@
         <form
             method="post"
             action="{% url 'heritage:approve_media_asset' media.id %}"
-            style="display:inline;"
+            class="inline-form"
         >
             {% csrf_token %}
 
@@ -100,7 +96,7 @@
         <form
             method="post"
             action="{% url 'heritage:reject_media_asset' media.id %}"
-            style="display:inline;"
+            class="inline-form"
         >
             {% csrf_token %}
 
@@ -121,6 +117,7 @@
 {% endfor %}
 
 
+</main>
 </body>
 
 </html>

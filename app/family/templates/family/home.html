@@ -4,159 +4,26 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <title>Семейное дерево</title>
 
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
+    <link rel="stylesheet" href="{% static 'family/vendor/vis-network-10.1.2/vis-network.css' %}">
 
     <script
-        src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js">
+        src="{% static 'family/vendor/vis-network-10.1.2/vis-network.min.js' %}?v=20260910">
     </script>
 
-    <style>
-        body {
-            margin: 0;
-
-            font-family:
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                sans-serif;
-
-            background: #fafafa;
-        }
-
-        header {
-            padding: 18px 30px;
-
-            background: white;
-
-            border-bottom: 1px solid #e5e5e5;
-        }
-
-        header h1 {
-            margin: 0;
-        }
-
-        header p {
-            margin: 6px 0 0;
-
-            color: #777;
-        }
-
-        .navigation {
-            margin-top: 16px;
-        }
-
-        .navigation a {
-            margin-right: 12px;
-        }
-
-        .admin-navigation {
-            margin-top: 14px;
-        }
-
-        #family-tree {
-            width: 100%;
-
-            height: calc(100vh - 160px);
-
-            background: white;
-        }
-
-        .warning {
-            margin: 15px 30px;
-
-            padding: 12px 16px;
-
-            border: 1px solid #ddd;
-
-            border-radius: 10px;
-
-            background: white;
-        }
-    </style>
 </head>
 
 
 <body>
 
-<header>
-
-    <div class="brand-mark">⌂ <span>Семейный круг</span></div>
-
-    <h1>
-        Семейное дерево
-    </h1>
-
-    <p>
-        Нажмите на человека, чтобы открыть профиль
-    </p>
-
-
-    <nav class="navigation" aria-label="Основная навигация">
-
-        <a class="nav-current" href="{% url 'family:home' %}">
-            Семья
-        </a>
-
-        <a href="#family-tree">
-            Дерево
-        </a>
-
-        <a href="{% url 'family:my_profile' %}">
-            Мой профиль
-        </a>
-
-        <form
-            method="post"
-            action="{% url 'family:logout' %}"
-            style="display: inline;"
-        >
-            {% csrf_token %}
-
-            <button type="submit">
-                Выйти
-            </button>
-        </form>
-
-    </nav>
-
-
-    {% if request.user.is_staff %}
-
-        <div class="admin-navigation">
-
-            <a href="{% url 'accounts:create_invitation' %}">
-                ✉️ Пригласить родственника
-            </a>
-
-            <a href="{% url 'accounts:invitation_list' %}">
-                📋 Управление приглашениями
-            </a>
-
-        </div>
-
-    {% endif %}
-
-
-    {% if can_admin %}
-
-        <div class="admin-navigation">
-
-            <a href="{% url 'profiles:change_request_list' %}">
-                📝 Запросы на изменения
-            </a>
-
-            <a href="{% url 'audit:event_list' %}">
-                🔎 Журнал действий
-            </a>
-
-        </div>
-
-    {% endif %}
-
-</header>
+{% include 'family/navigation.html' %}
+<main class="family-workspace tree-page">
+<div class="page-intro"><div><h1>Семейное дерево</h1><p class="secondary">Выберите человека, чтобы открыть профиль. Схему можно перемещать и приближать.</p></div>
+<a href="{% url 'family:home' %}" class="button-secondary">Список родственников</a></div>
 
 
 {% if generation_conflicts %}
@@ -171,14 +38,17 @@
 {% endif %}
 
 
-<div id="family-tree"></div>
+<div class="tree-toolbar"><button type="button" id="tree-fit">Показать всё дерево</button><span class="secondary">Сплошная линия — родство · пунктир — партнёры</span></div>
+<div id="family-tree" role="img" aria-label="Схема родственных связей. Список людей доступен по ссылке выше."></div>
+{% if not nodes %}<p class="empty-state">В дереве пока нет людей.</p>{% endif %}
+</main>
 
 
 {{ nodes|json_script:"family-nodes" }}
 {{ edges|json_script:"family-edges" }}
 
 
-<script>
+<script nonce="{{ csp_nonce }}">
     const nodesData =
         JSON.parse(
             document.getElementById(
@@ -257,10 +127,27 @@
     };
 
 
+    function treeColors() {
+        const css = getComputedStyle(document.documentElement);
+        const color = name => css.getPropertyValue(`--family-${name}`).trim();
+        return {
+            nodes: {
+                color: {
+                    background: color("surface"), border: color("accent"),
+                    highlight: { background: color("soft"), border: color("accent") },
+                    hover: { background: color("soft"), border: color("accent") }
+                },
+                font: { color: color("ink") }
+            },
+            edges: { color: { color: color("muted"), highlight: color("accent"), hover: color("accent") } }
+        };
+    }
+
     const options = {
 
         nodes: {
             shape: "box",
+            widthConstraint: { maximum: 170 },
 
             color: {
                 background: "#fffdf8",
@@ -301,9 +188,9 @@
 
                 levelSeparation: 150,
 
-                nodeSpacing: 180,
+                nodeSpacing: 240,
 
-                treeSpacing: 240,
+                treeSpacing: 280,
 
                 sortMethod: "directed"
             }
@@ -359,6 +246,11 @@
 
 
     network.fit();
+    document.getElementById("tree-fit").addEventListener("click", () => network.fit());
+    network.setOptions(treeColors());
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+        network.setOptions(treeColors());
+    });
 </script>
 
 </body>

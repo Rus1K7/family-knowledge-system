@@ -10,6 +10,7 @@ from django.shortcuts import (
     render,
 )
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 
 from audit.models import AuditEvent
@@ -1103,6 +1104,7 @@ def upload_media_asset(request, person_id):
         },
     )
 
+@never_cache
 @login_required
 def serve_media_asset(request, media_id):
     media_asset = get_object_or_404(

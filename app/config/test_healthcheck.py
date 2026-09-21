@@ -7,8 +7,26 @@ from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
+from config.proxy_transport import loopback_proxy_v2
+
 
 class HealthcheckCommandTests(SimpleTestCase):
+    @override_settings(
+        ALLOWED_HOSTS=["web-family.tail7fe668.ts.net"],
+        PROXY_PROTOCOL_ENABLED=True, SECURE_PROXY_SSL_HEADER=None,
+    )
+    def test_proxy_health_uses_transport_header_before_http(self):
+        with patch("config.management.commands.healthcheck.http.client.HTTPConnection") as factory:
+            client = factory.return_value
+            client.getresponse.return_value.status = 200
+            client.getresponse.return_value.read.return_value = b'{"status":"ok"}'
+            call_command("healthcheck", stdout=StringIO())
+            client.connect.assert_called_once()
+            client.send.assert_called_once_with(loopback_proxy_v2())
+            client.request.assert_called_once_with("GET", "/health/", headers={
+                "Host": "web-family.tail7fe668.ts.net",
+            })
+
     @override_settings(ALLOWED_HOSTS=["family.example.com"], SECURE_PROXY_SSL_HEADER=("HTTP_X_FORWARDED_PROTO", "https"))
     def test_command_is_registered_and_checks_local_http_server(self):
         output = StringIO()
@@ -44,6 +62,10 @@ class HealthcheckCommandTests(SimpleTestCase):
 
 
 class HealthEndpointTests(TestCase):
+    def test_site_root_leads_to_the_family_sign_in(self):
+        self.assertRedirects(self.client.get("/"), "/family/", fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/family/"), "/family/login/?next=/family/")
+
     def test_anonymous_request_checks_real_database_without_exposing_data(self):
         with self.assertNumQueries(1):
             response = self.client.get(reverse("health"))

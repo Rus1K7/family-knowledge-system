@@ -4,11 +4,16 @@
 
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
     <title>Вход</title>
 </head>
 
 <body>
+{% include 'family/navigation.html' %}
+
+<main class="container">
+<section class="card">
 
 <h1>Вход в семейную систему</h1>
 
@@ -27,6 +32,9 @@
 <p>
     <a href="{% url 'family:password_reset' %}">Забыли пароль?</a>
 </p>
+
+</section>
+</main>
 
 </body>
 

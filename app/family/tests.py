@@ -173,6 +173,28 @@ class FamilyTreeAuditTests(TestCase):
         self.assertEqual(event.details["person_b_id"], str(self.person.id))
         self.assertNotIn("Родитель", str(event.details))
 
+    def test_family_admin_without_staff_flag_sees_management_links(self):
+        self.assertFalse(self.admin.is_staff)
+        home = self.client.get(reverse("family:home"))
+        profile = self.client.get(reverse("family:person_detail", args=[self.person.id]))
+        self.assertContains(home, reverse("accounts:create_invitation"))
+        self.assertContains(home, reverse("accounts:invitation_list"))
+        self.assertContains(profile, self.url)
+
+    def test_staff_family_member_does_not_see_admin_links(self):
+        member = User.objects.create_user(
+            username="navigation-staff", email="navigation-staff@example.com", is_staff=True,
+        )
+        ProfileOwnership.objects.create(
+            user=member, person=self.person, status=ProfileOwnership.Status.CONFIRMED,
+        )
+        self.client.force_login(member)
+        home = self.client.get(reverse("family:home"))
+        profile = self.client.get(reverse("family:person_detail", args=[self.person.id]))
+        self.assertNotContains(home, reverse("accounts:create_invitation"))
+        self.assertNotContains(home, reverse("accounts:invitation_list"))
+        self.assertNotContains(profile, self.url)
+
     def test_existing_relative_repeat_does_not_duplicate_events(self):
         relative = Person.objects.create(first_name="Существующий")
         for relation_type in ("CHILD", "SPOUSE"):

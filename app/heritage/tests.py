@@ -1,4 +1,8 @@
 from unittest.mock import patch
+from io import BytesIO
+
+from PIL import Image
+from pypdf import PdfWriter
 
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -19,6 +23,20 @@ from .models import (
     Verification,
 )
 from .storage import private_media_storage
+
+
+def valid_image_bytes(image_format="JPEG"):
+    output = BytesIO()
+    Image.new("RGB", (4, 3), color=(80, 120, 90)).save(output, format=image_format)
+    return output.getvalue()
+
+
+def valid_pdf_bytes():
+    output = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=300, height=200)
+    writer.write(output)
+    return output.getvalue()
 
 
 class MediaAssetUploadFormTests(SimpleTestCase):
@@ -50,7 +68,7 @@ class MediaAssetUploadFormTests(SimpleTestCase):
     def test_valid_jpeg_is_accepted_and_mime_is_verified(self):
         form = self.build_form(
             filename="family.jpg",
-            content=b"\xff\xd8\xff\xe0test-image",
+            content=valid_image_bytes(),
             content_type="image/jpeg",
         )
 
@@ -63,7 +81,7 @@ class MediaAssetUploadFormTests(SimpleTestCase):
     def test_valid_pdf_document_is_accepted(self):
         form = self.build_form(
             filename="document.pdf",
-            content=b"%PDF-1.7\n1 0 obj\n",
+            content=valid_pdf_bytes(),
             content_type="application/pdf",
             media_type=MediaAsset.MediaType.DOCUMENT,
         )
@@ -83,7 +101,7 @@ class MediaAssetUploadFormTests(SimpleTestCase):
     def test_wrong_extension_is_rejected(self):
         form = self.build_form(
             filename="image.pdf",
-            content=b"\xff\xd8\xff\xe0test-image",
+            content=valid_image_bytes(),
             content_type="image/jpeg",
         )
 
@@ -93,7 +111,7 @@ class MediaAssetUploadFormTests(SimpleTestCase):
     def test_pdf_cannot_be_uploaded_as_photo(self):
         form = self.build_form(
             filename="document.pdf",
-            content=b"%PDF-1.7\n1 0 obj\n",
+            content=valid_pdf_bytes(),
             content_type="application/pdf",
             media_type=MediaAsset.MediaType.PHOTO,
         )
@@ -244,7 +262,7 @@ class HeritageMutationAuditTests(TestCase):
         )
 
     def test_media_upload_logs_safe_metadata(self):
-        file_content = b"\xff\xd8\xff\xe0test-image"
+        file_content = valid_image_bytes()
         secret_filename = "private-family-secret.jpg"
 
         response = self.client.post(
@@ -474,7 +492,7 @@ class HeritageMutationAuditTests(TestCase):
                         "description": "",
                         "file": SimpleUploadedFile(
                             "rollback.jpg",
-                            b"\xff\xd8\xff\xe0rollback-image",
+                            valid_image_bytes(),
                             content_type="image/jpeg",
                         ),
                     },

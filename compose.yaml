@@ -28,6 +28,11 @@ services:
 
     container_name: family_web
 
+    # Development keeps live source mounting and Django's reload server.
+    # The production image itself defaults to Gunicorn as a non-root user.
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    user: root
+
     env_file:
       - .env
 
@@ -35,7 +40,7 @@ services:
       - ./app:/app
 
     ports:
-      - "127.0.0.1:8000:8000"
+      - "0.0.0.0:8000:8000"
 
     depends_on:
       db:

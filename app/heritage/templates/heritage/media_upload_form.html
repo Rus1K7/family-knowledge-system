@@ -4,7 +4,8 @@
 
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
 
     <title>
         Добавить фото или документ
@@ -12,6 +13,8 @@
 </head>
 
 <body>
+{% include 'family/navigation.html' %}
+<main class="narrow-page">
 
 <a href="{% url 'family:person_detail' person.id %}">
     ← Назад к профилю
@@ -29,6 +32,9 @@
 <p>
     Разрешены JPG, PNG, WebP и PDF.
     Максимальный размер — 20 МБ.
+    Изображения должны быть статическими и не больше 40 мегапикселей.
+    PDF должен открываться без пароля, содержать не больше 500 страниц
+    и не включать активные сценарии или вложенные файлы.
 </p>
 
 
@@ -47,6 +53,7 @@
 
 </form>
 
+</main>
 </body>
 
 </html>

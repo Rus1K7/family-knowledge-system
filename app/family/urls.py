@@ -1,6 +1,7 @@
 from django.urls import path
 
 from . import views
+from . import relative_requests
 from django.contrib.auth import views as auth_views
 from django.urls import reverse_lazy
 from accounts.forms import ActivePasswordResetForm
@@ -10,6 +11,11 @@ app_name = "family"
 
 
 urlpatterns = [
+    path("requests/", views.requests_home, name="requests"),
+    path("person/<uuid:person_id>/propose-relative/", relative_requests.propose_relative, name="propose_relative"),
+    path("relatives/proposals/", relative_requests.relative_proposals, name="relative_proposals"),
+    path("relatives/proposals/<uuid:proposal_id>/", relative_requests.relative_proposal, name="relative_proposal"),
+    path("tree/", views.family_tree, name="tree"),
     path(
         "",
         views.family_home,

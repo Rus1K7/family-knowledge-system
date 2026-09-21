@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+production.env
 secrets/
 *.pem
 *.key
@@ -31,6 +32,8 @@ media/
 .pytest_cache/
 .coverage
 htmlcov/
+node_modules/
+test-results/
 
 # Misc
 *.swp

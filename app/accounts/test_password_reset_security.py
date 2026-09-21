@@ -145,6 +145,27 @@ class PasswordResetSecurityTests(TestCase):
         payload = {**self.payload(), "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
         self.assertRedirects(client.post(form_url, payload), reverse("family:password_reset_complete"))
 
+    def test_https_form_without_origin_preserves_same_origin_referer(self):
+        client = Client(enforce_csrf_checks=True)
+        headers = {"secure": True, "HTTP_HOST": "testserver:8443"}
+        redirect = client.get(link_for(self.user), **headers)
+        self.assertEqual(redirect.status_code, 302)
+        self.assertEqual(redirect["Referrer-Policy"], "no-referrer")
+        form_url = redirect["Location"]
+        page = client.get(form_url, **headers)
+        self.assertEqual(page["Referrer-Policy"], "same-origin")
+        # Browsers without Origin need Referer for Django's HTTPS CSRF check.
+        referer = "https://testserver:8443" + form_url
+        payload = {**self.payload(), "csrfmiddlewaretoken": client.cookies["csrftoken"].value}
+        self.assertEqual(client.post(form_url, self.payload(), HTTP_REFERER=referer, **headers).status_code, 403)
+        self.assertEqual(client.post(form_url, payload, HTTP_REFERER="https://outside.invalid/", **headers).status_code, 403)
+        self.assertEqual(client.post(form_url, payload, **headers).status_code, 403)
+        response = client.post(form_url, payload, HTTP_REFERER=referer, **headers)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("family:password_reset_complete"))
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.new_password))
+
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
 @skipUnlessDBFeature("has_select_for_update")

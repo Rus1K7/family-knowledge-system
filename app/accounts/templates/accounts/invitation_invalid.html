@@ -4,11 +4,14 @@
 
 <head>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
     <title>Приглашение недействительно</title>
 </head>
 
 <body>
+{% include 'family/navigation.html' %}
+<main class="narrow-page">
 
 <h1>
     Приглашение недействительно
@@ -19,6 +22,7 @@
     отменена или срок её действия истёк.
 </p>
 
+</main>
 </body>
 
 </html>

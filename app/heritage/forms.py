@@ -12,6 +12,7 @@ from .models import (
     Verification,
 )
 from .permissions import available_source_documents
+from .file_validation import UnsafeMediaError, validate_media_content
 
 
 ALLOWED_MEDIA_EXTENSIONS = {
@@ -303,6 +304,11 @@ class MediaAssetUploadForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Расширение файла не соответствует его формату."
             )
+
+        try:
+            validate_media_content(uploaded_file, detected_content_type)
+        except UnsafeMediaError as error:
+            raise forms.ValidationError(str(error)) from error
 
         uploaded_file.verified_content_type = (
             detected_content_type

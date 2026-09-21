@@ -4,108 +4,19 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
     <title>{{ person }}</title>
 
-    <link rel="stylesheet" href="{% static 'family/family.css' %}">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
 
-    <style>
-        body {
-            margin: 0;
-            background: #f5f5f7;
-
-            font-family:
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                sans-serif;
-        }
-
-        .container {
-            max-width: 900px;
-            margin: 40px auto;
-            padding: 0 20px;
-        }
-
-        .back {
-            display: inline-block;
-            margin-bottom: 20px;
-            text-decoration: none;
-        }
-
-        .header {
-            background: white;
-            border-radius: 18px;
-            padding: 30px;
-            margin-bottom: 20px;
-        }
-
-        .header h1 {
-            margin-top: 0;
-            margin-bottom: 10px;
-        }
-
-        .section {
-            background: white;
-            border-radius: 18px;
-
-            padding: 24px;
-            margin-bottom: 18px;
-        }
-
-        .section h2 {
-            margin-top: 0;
-        }
-
-        .relative {
-            display: block;
-
-            padding: 8px 0;
-
-            text-decoration: none;
-        }
-
-        .item {
-            padding: 12px 0;
-            border-bottom: 1px solid #eee;
-        }
-
-        .item:last-child {
-            border-bottom: none;
-        }
-
-        .secondary {
-            color: #777;
-        }
-
-        .skills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .skill {
-            background: #f0f0f2;
-
-            padding: 7px 12px;
-
-            border-radius: 20px;
-        }
-
-        .add-relative {
-            display: inline-block;
-
-            margin-top: 15px;
-
-            text-decoration: none;
-        }
-    </style>
 </head>
 
 
 <body>
+{% include 'family/navigation.html' %}
 
-<div class="container">
+<main class="container profile-page">
 
     <a
         class="back"
@@ -114,54 +25,33 @@
     </a>
 
 
-    <div class="header">
-
-        <h1>
-            {{ person }}
-        </h1>
-
-        {% if person.birth_date %}
-
-            <div class="secondary">
-                Дата рождения:
-                {{ person.birth_date }}
-            </div>
-
-        {% endif %}
-
-        {% if can_manage %}
-
-            <p>
-                <a href="{% url 'privacy:access_request_list' %}">
-                    🔑 Запросы доступа
-
-                    {% if pending_access_requests_count %}
-                        ({{ pending_access_requests_count }})
-                    {% endif %}
-                </a>
-            </p>
-
-        {% endif %}
-
-
-        {% if request.user.is_staff %}
-
-            <a
-                class="add-relative"
-                href="{% url 'family:add_relative' person.id %}">
-                + Добавить родственника
-            </a>
-
-        {% endif %}
-
+    <div class="profile-identity">
+        <span class="person-avatar profile-avatar" aria-hidden="true">{{ person.first_name|first }}{{ person.last_name|first }}</span>
+        <div><h1>{{ person }}</h1>
+        {% if person.birth_date %}<p class="secondary">Дата рождения: {{ person.birth_date }}</p>{% endif %}
+        <p class="secondary">{{ person.get_profile_status_display }}</p></div>
+    </div>
+    <div class="profile-actions">
+        {% if family_navigation.enabled %}<a class="button-secondary" href="{% url 'family:propose_relative' person.id %}">Предложить родственника</a>{% endif %}
+        {% if can_admin %}<a class="text-action" href="{% url 'family:add_relative' person.id %}">Добавить родственника</a>{% endif %}
+        {% if can_manage and pending_access_requests_count %}<a class="text-action" href="{% url 'privacy:access_request_list' %}">Запросы доступа · {{ pending_access_requests_count }}</a>{% endif %}
     </div>
 
-
+<div class="profile-tabs" role="tablist" aria-label="Разделы профиля" hidden>
+<button type="button" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0" data-profile-tab="overview">Семья</button>
+<button type="button" role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" tabindex="-1" data-profile-tab="history">История жизни</button>
+<button type="button" role="tab" id="tab-media" aria-controls="panel-media" aria-selected="false" tabindex="-1" data-profile-tab="media">Фото и документы</button>
+<button type="button" role="tab" id="tab-experience" aria-controls="panel-experience" aria-selected="false" tabindex="-1" data-profile-tab="experience">Опыт и помощь</button>
+</div>
+<div id="panel-overview" class="profile-panel" role="tabpanel" aria-labelledby="tab-overview">
     <div class="section">
 
         <h2>
-            👪 Семья
+            Семья
         </h2>
+        {% if not parents and not spouses and not children and not siblings %}
+            <p class="secondary">Родственные связи пока не добавлены.</p>
+        {% endif %}
 
 
         {% if parents %}
@@ -241,10 +131,12 @@
 
     </div>
 
+</div>
+<div id="panel-history" class="profile-panel" role="tabpanel" aria-labelledby="tab-history">
     <div class="section">
 
         <h2>
-            📖 Биография
+            Биография
         </h2>
 
         {% if biography_item %}
@@ -384,7 +276,7 @@
                                             <form
                                                 method="post"
                                                 action="{% url 'heritage:archive_source' link.source.id %}"
-                                                style="display:inline;"
+                                                class="inline-form"
                                             >
                                                 {% csrf_token %}
                                                 <button type="submit">
@@ -396,7 +288,7 @@
                                         <form
                                             method="post"
                                             action="{% url 'heritage:detach_source' link.id %}"
-                                            style="display:inline;"
+                                            class="inline-form"
                                         >
                                             {% csrf_token %}
 
@@ -485,7 +377,7 @@
     <div class="section">
 
         <h2>
-            🕰 История жизни
+            История жизни
         </h2>
 
 
@@ -617,7 +509,7 @@
                                             <form
                                                 method="post"
                                                 action="{% url 'heritage:archive_source' link.source.id %}"
-                                                style="display:inline;"
+                                                class="inline-form"
                                             >
                                                 {% csrf_token %}
                                                 <button type="submit">
@@ -629,7 +521,7 @@
                                         <form
                                             method="post"
                                             action="{% url 'heritage:detach_source' link.id %}"
-                                            style="display:inline;"
+                                            class="inline-form"
                                         >
                                             {% csrf_token %}
 
@@ -738,10 +630,12 @@
 
     </div>
 
+</div>
+<div id="panel-media" class="profile-panel" role="tabpanel" aria-labelledby="tab-media">
     <div class="section">
 
         <h2>
-            🖼 Фото и документы
+            Фото и документы
         </h2>
 
 
@@ -760,7 +654,7 @@
 
             <p>
                 <a href="{% url 'heritage:media_moderation_list' %}">
-                    🗂 Проверить загруженные файлы
+                    Проверить загруженные файлы
                 </a>
             </p>
 
@@ -843,11 +737,7 @@
                                     <img
                                         src="{% url 'heritage:serve_media_asset' media.id %}"
                                         alt="{{ media.title }}"
-                                        style="
-                                            max-width: 350px;
-                                            max-height: 300px;
-                                            border-radius: 12px;
-                                        "
+                                        class="media-preview"
                                     >
                                 </a>
                             </p>
@@ -904,10 +794,12 @@
         {% endfor %}
 
     </div>
+</div>
+<div id="panel-experience" class="profile-panel" role="tabpanel" aria-labelledby="tab-experience">
     <div class="section">
 
         <h2>
-            💼 Работа
+            Работа
         </h2>
 
 
@@ -1013,7 +905,7 @@
     <div class="section">
 
         <h2>
-            🎓 Образование
+            Образование
         </h2>
 
                 {% if can_manage %}
@@ -1111,7 +1003,7 @@
     <div class="section">
 
         <h2>
-            🛠 Навыки
+            Навыки
         </h2>
 
             {% if can_manage %}
@@ -1185,7 +1077,7 @@
     <div class="section">
 
         <h2>
-            🤝 Могу помочь
+            Могу помочь
         </h2>
         {% if can_manage %}
             <p>
@@ -1268,7 +1160,9 @@
     </div>
 
 </div>
+</main>
 
+<script src="{% static 'family/profile.js' %}?v=20260916" defer></script>
 </body>
 
 </html>

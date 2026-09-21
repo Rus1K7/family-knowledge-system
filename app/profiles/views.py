@@ -2,6 +2,7 @@ from functools import wraps
 
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -85,6 +86,15 @@ def get_change_person(change_request):
         return None
 
     return target.person
+
+
+@login_required
+def my_change_requests(request):
+    requests = ProfileChangeRequest.objects.filter(
+        requested_by=request.user,
+    ).order_by("-requested_at", "-id")
+    page = Paginator(requests, 20).get_page(request.GET.get("page"))
+    return render(request, "profiles/my_changes.html", {"page_obj": page})
 
 
 @system_admin_required

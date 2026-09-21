@@ -1,4 +1,4 @@
-"""Local Compose backups and isolated restore drills. Python 3.11+, stdlib only."""
+"""Compose backups and isolated restore drills. Python 3.11+, stdlib only."""
 
 import argparse
 import hashlib
@@ -17,6 +17,12 @@ from pathlib import Path, PurePosixPath
 
 PROJECT = Path(__file__).resolve().parents[1]
 COMPOSE = ["docker", "compose"]
+OUTPUT = PROJECT / "backups"
+PRODUCTION_OUTPUT = OUTPUT / "production"
+COMPOSE_SOURCE_VARIABLES = (
+    "COMPOSE_PROJECT_NAME", "COMPOSE_FILE", "COMPOSE_PROFILES",
+    "COMPOSE_ENV_FILES", "COMPOSE_DISABLE_ENV_FILE",
+)
 IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*\Z")
 
 
@@ -41,8 +47,36 @@ def run(args, *, stdin=None, stdout=subprocess.PIPE, timeout=300):
     return result.stdout
 
 
-def db_command(program, *args):
-    return COMPOSE + [
+def compose_command(*, production=False):
+    if production:
+        return COMPOSE + ["-p", "family-production", "-f", "compose.production.yaml"]
+    return list(COMPOSE)
+
+
+def backup_source(*, production=False):
+    """Record routing context, never configuration contents or credentials."""
+    try:
+        daemon_id = run(["docker", "info", "--format", "{{.ID}}"], timeout=10).strip()
+    except (BackupError, OSError, subprocess.TimeoutExpired) as error:
+        raise BackupError("Не удалось определить источник Docker. Проверьте выбранный сервер и соединение.") from error
+    if not re.fullmatch(rb"[A-Za-z0-9][A-Za-z0-9:-]{7,127}", daemon_id):
+        raise BackupError("Docker не вернул идентификатор источника; копирование не подтверждено.")
+    source = {
+        "project_directory": str(PROJECT),
+        "compose": compose_command(production=production),
+        "docker_daemon_sha256": hashlib.sha256(daemon_id).hexdigest(),
+        "compose_environment": {
+            name: os.environ[name] for name in COMPOSE_SOURCE_VARIABLES if name in os.environ
+        },
+    }
+    if production:
+        env_file = os.environ.get("FKS_PRODUCTION_ENV_FILE") or "production.env"
+        source["environment_file"] = str((PROJECT / env_file).resolve())
+    return source
+
+
+def db_command(program, *args, production=False):
+    return compose_command(production=production) + [
         "exec", "-T", "db", "sh", "-c",
         'exec "$@" --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"',
         "sh", program, *args,
@@ -93,9 +127,11 @@ def inspect_media(path, *, expected=None, destination=None):
     return files
 
 
-def create_backup(output):
+def create_backup(output, *, production=False):
+    source = backup_source(production=production)
     output.mkdir(mode=0o700, parents=True, exist_ok=True)
-    image_container = run(COMPOSE + ["ps", "-q", "db"]).decode().strip()
+    compose = compose_command(production=production)
+    image_container = run(compose + ["ps", "-q", "db"]).decode().strip()
     if not image_container:
         raise BackupError("Сервис db должен быть запущен.")
     image = run(["docker", "inspect", "--format", "{{.Image}}", image_container]).decode().strip()
@@ -106,14 +142,16 @@ def create_backup(output):
     try:
         with tempfile.TemporaryFile() as errors:
             holder = subprocess.Popen(
-                COMPOSE + ["exec", "-T", "web", "python", "manage.py", "backup_snapshot"],
+                compose + ["exec", "-T", "web", "python", "manage.py", "backup_snapshot"],
                 cwd=PROJECT, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errors,
             )
             header = holder.stdout.readline()
             if not header:
                 raise BackupError("Не удалось получить снимок. Проверьте доступность базы и медиа-файлов.")
             metadata = json.loads(header)
-            database_name = run(db_command("psql", "-XAt", "-c", "SELECT current_database()")).decode().strip()
+            database_name = run(db_command(
+                "psql", "-XAt", "-c", "SELECT current_database()", production=production,
+            )).decode().strip()
             if database_name != metadata["database"]:
                 raise BackupError("Приложение и сервис db используют разные базы.")
             with (staging / "database.dump").open("xb") as dump:
@@ -121,6 +159,7 @@ def create_backup(output):
                     "pg_dump", "--format=custom", "--no-owner", "--no-privileges",
                     "--schema=public", "--lock-wait-timeout=5s",
                     f"--snapshot={metadata['snapshot']}",
+                    production=production,
                 ), stdout=dump, timeout=240)
             holder.stdin.write(b"export-media\n")
             holder.stdin.flush()
@@ -133,9 +172,12 @@ def create_backup(output):
         files = inspect_media(staging / "media.tar")
         if sorted(files) != metadata["media_names"]:
             raise BackupError("Архив не содержит все файлы снимка базы.")
+        if backup_source(production=production) != source:
+            raise BackupError("Источник Docker изменился во время копирования; повторите запуск.")
         manifest = {
             "format_version": 1,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "source": source,
             "postgres_image": image,
             "postgres_major": metadata["postgres_major"],
             "table_counts": metadata["table_counts"],
@@ -248,15 +290,20 @@ def verify_backup(backup):
 def main():
     parser = argparse.ArgumentParser(description="Копирование семейной базы и проверка восстановления")
     commands = parser.add_subparsers(dest="action", required=True)
-    create = commands.add_parser("create", help="создать новую локальную копию")
-    create.add_argument("--output", type=Path, default=PROJECT / "backups")
+    create = commands.add_parser("create", help="создать новую копию на этом компьютере")
+    create.add_argument("--production", action="store_true", help="копировать проект family-production")
+    create.add_argument("--output", type=Path, help="каталог копий (production по умолчанию: backups/production)")
     verify = commands.add_parser("verify", help="восстановить доверенную копию во временном окружении")
     verify.add_argument("backup", type=Path)
     args = parser.parse_args()
     os.umask(0o077)
     try:
         if args.action == "create":
-            create_backup(args.output.resolve())
+            output = args.output if args.output is not None else (PRODUCTION_OUTPUT if args.production else OUTPUT)
+            if args.production:
+                create_backup(output.resolve(), production=True)
+            else:
+                create_backup(output.resolve())
         else:
             verify_backup(args.backup.resolve())
     except (BackupError, OSError, ValueError, KeyError, tarfile.TarError, subprocess.TimeoutExpired) as error:

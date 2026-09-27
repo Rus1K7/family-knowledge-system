@@ -62,8 +62,8 @@ class HealthcheckCommandTests(SimpleTestCase):
 
 
 class HealthEndpointTests(TestCase):
-    def test_site_root_leads_to_the_family_sign_in(self):
-        self.assertRedirects(self.client.get("/"), "/family/", fetch_redirect_response=False)
+    def test_site_root_uses_account_aware_entry(self):
+        self.assertRedirects(self.client.get("/"), "/personal/entry/", fetch_redirect_response=False)
         self.assertRedirects(self.client.get("/family/"), "/family/login/?next=/family/")
 
     def test_anonymous_request_checks_real_database_without_exposing_data(self):

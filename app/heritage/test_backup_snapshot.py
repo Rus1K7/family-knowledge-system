@@ -9,10 +9,12 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.contrib.auth import get_user_model
 from django.db import DatabaseError, connection
 from django.test import TransactionTestCase
 
 from family.models import Person
+from circles.models import Connection, Memory, Photo, PersonalProfile
 
 from .models import MediaAsset
 
@@ -65,6 +67,47 @@ class BackupSnapshotTests(TransactionTestCase):
         self.assertEqual(self.output.buffer.getvalue(), b"")
         self.assertTrue(MediaAsset.objects.filter(id=self.media.id).exists())
         self.assertFalse(connection.in_atomic_block)
+
+    def personal_files(self):
+        storage = FileSystemStorage(location=self.root)
+        for model, field in [(Photo, 'file'), (PersonalProfile, 'avatar')]:
+            storage_patch = patch.object(model._meta.get_field(field), 'storage', storage)
+            storage_patch.start()
+            self.addCleanup(storage_patch.stop)
+        User = get_user_model()
+        first = User.objects.create_user(username='backup-first', email='backup-first@example.invalid')
+        second = User.objects.create_user(username='backup-second', email='backup-second@example.invalid')
+        first, second = sorted([first, second], key=lambda user: user.pk)
+        link = Connection.objects.create(first=first, second=second)
+        memory = Memory.objects.create(connection=link, author=first, title='Private draft')
+        photo = Photo.objects.create(memory=memory, author=first,
+            file=ContentFile(b'private photo bytes', name='photo.png'), content_type='image/png')
+        profile = PersonalProfile.objects.create(user=first,
+            avatar=ContentFile(b'private avatar bytes', name='avatar.png'), avatar_content_type='image/png')
+        return photo, profile
+
+    def test_snapshot_and_storage_report_include_private_photos_and_avatars(self):
+        photo, profile = self.personal_files()
+        header, archive = self.execute_snapshot().split(b'\n', 1)
+        names = sorted([self.media.file.name, photo.file.name, profile.avatar.name])
+        self.assertEqual(json.loads(header)['media_names'], names)
+        with tarfile.open(fileobj=io.BytesIO(archive)) as restored:
+            self.assertEqual(restored.getnames(), names)
+            self.assertEqual(restored.extractfile(photo.file.name).read(), b'private photo bytes')
+            self.assertEqual(restored.extractfile(profile.avatar.name).read(), b'private avatar bytes')
+        output = io.StringIO()
+        call_command('media_storage_report', as_json=True, stdout=output)
+        report = json.loads(output.getvalue())
+        self.assertEqual(report['referenced'], 3)
+        self.assertEqual(report['orphans'], [])
+        self.assertEqual(report['missing'], [])
+
+    def test_missing_private_photo_aborts_backup(self):
+        photo, profile = self.personal_files()
+        photo.file.storage.delete(photo.file.name)
+        with self.assertRaisesMessage(CommandError, 'отсутствует'):
+            self.execute_snapshot()
+        self.assertEqual(self.output.buffer.getvalue(), b'')
 
     def test_symbolic_link_is_not_copied(self):
         target = self.root / "another-file"

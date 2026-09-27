@@ -4,7 +4,6 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, render
 
-from django.db import transaction
 from django.db.models import Q
 from django.core.paginator import Paginator
 from django.shortcuts import redirect
@@ -12,11 +11,17 @@ from django.shortcuts import redirect
 from audit.models import AuditEvent
 from audit.services import log_audit_event
 
-from .forms import AddRelativeForm
 from .models import Person, ProfileOwnership, Relationship
-from .relationships import lock_relationship_graph
+from .tree_data import build_family_groups, graph_data
+from .portraits import portrait_url
+from django.views.decorators.cache import never_cache
+from .tree_presentation import kinship_labels
+from .focused_tree import arrange_from_person
+from .journey_navigation import back_context
+from django.urls import reverse
 
 from .permissions import (
+    can_manage_relationships,
     can_manage_person,
     is_family_member,
     is_system_admin,
@@ -103,7 +108,7 @@ def build_generation_levels(persons, relationships):
 
     # Семья потенциально может состоять
     # из нескольких пока не связанных веток.
-    for start_person_id in person_ids:
+    for start_person_id in sorted(person_ids):
 
         if start_person_id in levels:
             continue
@@ -180,95 +185,54 @@ def family_home(request):
 
 
 @login_required
+@never_cache
 def family_tree(request):
-    if not (
-        is_system_admin(request.user)
-        or is_family_member(request.user)
-    ):
-        raise PermissionDenied(
-            "Доступ к семейному пространству не подтверждён."
-        )
-
-    persons = list(
-        Person.objects.all().order_by(
-            "last_name",
-            "first_name",
-        )
-    )
-
-    relationships = list(
-        Relationship.objects
-        .filter(
-            status=Relationship.Status.VERIFIED
-        )
-        .select_related(
-            "person_a",
-            "person_b",
-        )
-    )
-
-    levels, conflicts = build_generation_levels(
-        persons,
-        relationships,
-    )
-
-    nodes = []
-
-    for person in persons:
-        person_id = str(person.id)
-
-        nodes.append(
-            {
-                "id": person_id,
-                "label": str(person),
-                "url": f"/family/person/{person.id}/",
-                "level": levels.get(person_id, 0),
-            }
-        )
-
-    edges = []
-
-    for relationship in relationships:
-        edge = {
-            "from": str(relationship.person_a_id),
-            "to": str(relationship.person_b_id),
-            "type": relationship.relationship_type,
-        }
-
-        if relationship.relationship_type in {
-            Relationship.Type.PARENT_CHILD,
-            Relationship.Type.ADOPTIVE_PARENT,
-        }:
-            edge["kind"] = "parent"
-
-        elif relationship.relationship_type in {
-            Relationship.Type.SPOUSE,
-            Relationship.Type.PARTNER,
-        }:
-            edge["kind"] = "partner"
-
-        elif relationship.relationship_type == Relationship.Type.SIBLING:
-            edge["kind"] = "sibling"
-
-        else:
-            edge["kind"] = "other"
-
-        edges.append(edge)
-
-    return render(
-        request,
-        "family/home.html",
-        {
-            "nodes": nodes,
-            "edges": edges,
-            "generation_conflicts": conflicts,
-
-            "can_admin":
-                is_system_admin(request.user),
-        },
-    )
+    if not (is_system_admin(request.user) or is_family_member(request.user)):
+        raise PermissionDenied("Доступ к семейному пространству не подтверждён.")
+    persons = list(Person.objects.select_related("portrait", "portrait__person").order_by("last_name", "first_name", "id"))
+    relationships = list(Relationship.objects.filter(status=Relationship.Status.VERIFIED)
+        .select_related("person_a", "person_b").prefetch_related("periods"))
+    levels, conflicts = build_generation_levels(persons, relationships)
+    groups, extra_links = build_family_groups(persons, relationships)
+    focus_id = request.GET.get("person", "")
+    focus = next((p for p in persons if str(p.pk) == focus_id), None)
+    # Selection highlights a person; it never removes anyone from the common graph.
+    nodes, edges, connectors = graph_data(persons, groups, extra_links, levels,
+                                         {group["id"] for group in groups})
+    root_id = request.GET.get('root') or focus_id
+    focused_person = next((p for p in persons if str(p.pk) == root_id), None)
+    focused_view = bool(focused_person and request.GET.get('scope') == 'person')
+    branches = arrange_from_person(nodes, connectors, extra_links, root_id) if focused_view else []
+    person_by_id = {str(p.pk): p for p in persons}
+    kinship = kinship_labels(persons, relationships)
+    for node in nodes:
+        if node["kind"] == "family":
+            node["title"] = node["label"]
+            node["label"] = ""
+        elif node["kind"] == "person":
+            node["add_url"] = reverse("family:add_relative", args=[node["id"]])
+            node["propose_url"] = reverse("family:propose_person", args=[node["id"]])
+            person = person_by_id[node["id"]]
+            born = str(person.birth_date.year) if person.birth_date else ""
+            died = str(person.death_date.year) if person.death_date else ""
+            node.update(portrait_url=portrait_url(request.user, person), relatives=kinship[node['id']],
+                        first_name=person.first_name, middle_name=person.middle_name,
+                        last_name=person.last_name, is_living=person.is_living,
+                        initials=(person.first_name[:1] + (person.last_name[:1] or person.middle_name[:1])).upper(),
+                        life_label=(f"{born or '?'}–{died}" if died else
+                                    (f"{born} · память" if born and not person.is_living else born)))
+    return render(request, "family/home.html", {
+        "nodes": nodes, "edges": edges, "connectors": connectors,
+        "family_groups": groups, "extra_links": extra_links, "people": persons,
+        "focus": focus, "focus_id": str(focus.pk) if focus else "",
+        "generation_conflicts": conflicts, "person_count": len(persons),
+        "can_admin": can_manage_relationships(request.user),
+        "focused_view": focused_view, "focus_branches": branches,
+        "focused_person": focused_person if focused_view else None,
+    })
 
 @login_required
+@never_cache
 def person_detail(request, person_id):
     if not (
         is_system_admin(request.user)
@@ -308,6 +272,14 @@ def person_detail(request, person_id):
     children = []
     spouses = []
     siblings = []
+    couple_histories = []
+    seen_partners = set()
+    for union in list(relationships_from) + list(relationships_to):
+        if union.relationship_type in {Relationship.Type.SPOUSE, Relationship.Type.PARTNER} and union.status == Relationship.Status.VERIFIED:
+            other = union.person_b if union.person_a_id == person.pk else union.person_a
+            if other.pk not in seen_partners:
+                seen_partners.add(other.pk)
+                couple_histories.append({"person": other, "relationship": union})
 
     for relationship in relationships_from:
 
@@ -786,15 +758,13 @@ def person_detail(request, person_id):
             media_asset.status
             != MediaAsset.Status.APPROVED
             and not can_manage
+            and media_asset.uploaded_by_id != request.user.pk
+            and not can_manage_relationships(request.user)
         ):
             continue
 
-        can_view = can_view_resource(
-            request.user,
-            person,
-            PrivacyPolicy.ResourceType.MEDIA_ASSET,
-            media_asset.id,
-        )
+        from heritage.permissions import can_view_media
+        can_view = can_view_media(request.user, media_asset)
 
         show_existence = can_see_resource_existence(
             request.user,
@@ -835,11 +805,14 @@ def person_detail(request, person_id):
         request,
         "family/person_detail.html",
         {
+            **back_context(request, reverse("family:home")),
             "person": person,
 
             "parents": parents,
+            "portrait_url": portrait_url(request.user, person),
             "children": children,
-            "spouses": spouses,
+            "spouses": list({p.pk: p for p in spouses}.values()),
+            "couple_histories": couple_histories,
             "siblings": siblings,
 
             "employment_items": employment_items,
@@ -858,162 +831,6 @@ def person_detail(request, person_id):
         },
     )
 
-@login_required
-@transaction.atomic
-def add_relative(request, person_id):
-    if not is_system_admin(request.user):
-        raise PermissionDenied("Только администратор может менять семейное дерево.")
-
-    if request.method == "POST":
-        # Serialize graph validation and writes, including requests for
-        # different people that could jointly close an ancestry cycle.
-        lock_relationship_graph()
-
-    person = get_object_or_404(
-        Person,
-        id=person_id,
-    )
-
-    if request.method == "POST":
-        form = AddRelativeForm(
-            request.POST,
-            current_person=person,
-        )
-
-        if form.is_valid():
-            relative = form.cleaned_data[
-                "existing_person"
-            ]
-
-            if relative is None:
-                relative = Person.objects.create(
-                    first_name=form.cleaned_data[
-                        "first_name"
-                    ],
-                    middle_name=form.cleaned_data[
-                        "middle_name"
-                    ],
-                    last_name=form.cleaned_data[
-                        "last_name"
-                    ],
-                    birth_date=form.cleaned_data[
-                        "birth_date"
-                    ],
-                    profile_status=(
-                        Person.ProfileStatus.UNCLAIMED
-                    ),
-                )
-
-                log_audit_event(
-                    actor=request.user,
-                    action=AuditEvent.Action.CREATE_PERSON,
-                    person=relative,
-                    resource_type="PERSON",
-                    object_id=relative.id,
-                )
-
-            relation_type = form.cleaned_data[
-                "relation_type"
-            ]
-            relationship = None
-            created = False
-
-            if relation_type == "PARENT":
-                relationship, created = Relationship.objects.get_or_create(
-                    person_a=relative,
-                    person_b=person,
-                    relationship_type=(
-                        Relationship.Type.PARENT_CHILD
-                    ),
-                    defaults={
-                        "status":
-                            Relationship.Status.VERIFIED,
-                        "created_by":
-                            request.user,
-                    },
-                )
-
-            elif relation_type == "CHILD":
-                relationship, created = Relationship.objects.get_or_create(
-                    person_a=person,
-                    person_b=relative,
-                    relationship_type=(
-                        Relationship.Type.PARENT_CHILD
-                    ),
-                    defaults={
-                        "status":
-                            Relationship.Status.VERIFIED,
-                        "created_by":
-                            request.user,
-                    },
-                )
-
-            elif relation_type == "SPOUSE":
-                already_exists = (
-                    Relationship.objects.filter(
-                        person_a=person,
-                        person_b=relative,
-                        relationship_type=(
-                            Relationship.Type.SPOUSE
-                        ),
-                    ).exists()
-                    or
-                    Relationship.objects.filter(
-                        person_a=relative,
-                        person_b=person,
-                        relationship_type=(
-                            Relationship.Type.SPOUSE
-                        ),
-                    ).exists()
-                )
-
-                if not already_exists:
-                    relationship = Relationship.objects.create(
-                        person_a=person,
-                        person_b=relative,
-                        relationship_type=(
-                            Relationship.Type.SPOUSE
-                        ),
-                        status=(
-                            Relationship.Status.VERIFIED
-                        ),
-                        created_by=request.user,
-                    )
-                    created = True
-
-            if created:
-                log_audit_event(
-                    actor=request.user,
-                    action=AuditEvent.Action.CREATE_RELATIONSHIP,
-                    person=person,
-                    resource_type="RELATIONSHIP",
-                    object_id=relationship.id,
-                    details={
-                        "person_a_id": str(relationship.person_a_id),
-                        "person_b_id": str(relationship.person_b_id),
-                        "relationship_type": relationship.relationship_type,
-                        "status": relationship.status,
-                    },
-                )
-
-            return redirect(
-                "family:person_detail",
-                person_id=person.id,
-            )
-
-    else:
-        form = AddRelativeForm(
-            current_person=person,
-        )
-
-    return render(
-        request,
-        "family/add_relative.html",
-        {
-            "person": person,
-            "form": form,
-        },
-    )
 
 @login_required
 def my_profile(request):

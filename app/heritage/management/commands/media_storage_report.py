@@ -4,6 +4,7 @@ from pathlib import Path, PurePosixPath
 from django.core.management.base import BaseCommand, CommandError
 
 from heritage.models import MediaAsset
+from heritage.private_files import registered_private_files
 
 
 class Command(BaseCommand):
@@ -19,7 +20,7 @@ class Command(BaseCommand):
         if not root.is_dir():
             raise CommandError("Каталог закрытого хранилища не существует.")
 
-        referenced = set(MediaAsset.objects.exclude(file="").values_list("file", flat=True))
+        referenced = registered_private_files(root)
         invalid_references = []
         missing = []
         for name in sorted(referenced):

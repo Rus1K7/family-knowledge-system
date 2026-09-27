@@ -2,6 +2,9 @@ from django.urls import path
 
 from . import views
 from . import relative_requests
+from . import tree_views
+from . import person_proposals
+from .profile_edit import edit_person_name
 from django.contrib.auth import views as auth_views
 from django.urls import reverse_lazy
 from accounts.forms import ActivePasswordResetForm
@@ -11,6 +14,12 @@ app_name = "family"
 
 
 urlpatterns = [
+    path("person/<uuid:person_id>/propose-changes/", person_proposals.propose_person, name="propose_person"),
+    path("people/proposals/", person_proposals.person_proposals, name="person_proposals"),
+    path("people/proposals/<uuid:proposal_id>/", person_proposals.person_proposal, name="person_proposal"),
+    path("person/<uuid:person_id>/edit-name/", edit_person_name, name="edit_person_name"),
+    path("relationships/<uuid:relationship_id>/history/", tree_views.partnership_history, name="partnership_history"),
+    path("relationships/<uuid:relationship_id>/history/<uuid:period_id>/", tree_views.partnership_history, name="partnership_period_edit"),
     path("requests/", views.requests_home, name="requests"),
     path("person/<uuid:person_id>/propose-relative/", relative_requests.propose_relative, name="propose_relative"),
     path("relatives/proposals/", relative_requests.relative_proposals, name="relative_proposals"),
@@ -30,7 +39,7 @@ urlpatterns = [
 
     path(
         "person/<uuid:person_id>/add-relative/",
-        views.add_relative,
+        relative_requests.propose_relative,
         name="add_relative",
     ),
     path(

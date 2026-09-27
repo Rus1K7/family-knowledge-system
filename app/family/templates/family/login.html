@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260924-ux">
     <title>Вход</title>
 </head>
 
@@ -15,13 +15,14 @@
 <main class="container">
 <section class="card">
 
-<h1>Вход в семейную систему</h1>
+<h1>Войти в «Семейный круг»</h1>
+<p class="secondary">Семейные профили и личные истории — в одном аккаунте.</p>
 
 <form method="post">
 
     {% csrf_token %}
 
-    {{ form.as_p }}
+    {% include 'family/form_fields.html' %}
 
     <button type="submit">
         Войти

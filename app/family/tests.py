@@ -177,8 +177,10 @@ class FamilyTreeAuditTests(TestCase):
         self.assertFalse(self.admin.is_staff)
         home = self.client.get(reverse("family:home"))
         profile = self.client.get(reverse("family:person_detail", args=[self.person.id]))
-        self.assertContains(home, reverse("accounts:create_invitation"))
-        self.assertContains(home, reverse("accounts:invitation_list"))
+        self.assertContains(home, reverse("circles:invite_choice"))
+        self.assertContains(self.client.get(reverse("circles:invite_choice")), reverse("accounts:create_invitation"))
+        self.assertContains(home, reverse("admin:control"))
+        self.assertContains(self.client.get(reverse("admin:control")), reverse("accounts:invitation_list"))
         self.assertContains(profile, self.url)
 
     def test_staff_family_member_does_not_see_admin_links(self):

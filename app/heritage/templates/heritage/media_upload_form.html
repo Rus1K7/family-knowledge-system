@@ -38,6 +38,7 @@
 </p>
 
 
+<p class="hint">Файл появится в профиле после одобрения администратором или участником с правом проверки.</p>
 <form
     method="post"
     enctype="multipart/form-data"
@@ -45,10 +46,10 @@
 
     {% csrf_token %}
 
-    {{ form.as_p }}
+    {% include 'family/form_fields.html' %}
 
     <button type="submit">
-        Загрузить
+        Отправить на проверку
     </button>
 
 </form>

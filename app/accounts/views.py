@@ -31,26 +31,11 @@ logger = logging.getLogger(__name__)
 
 
 def send_invitation_email(invitation, invitation_url):
+    from .invitation_delivery import deliver, DeliveryBlocked
     try:
-        send_mail(
-            subject="Приглашение в семейное пространство",
-            message=(
-                f"Здравствуйте! Вас приглашают "
-                f"присоединиться к семейному профилю "
-                f"{invitation.person}.\n\n"
-                f"Откройте ссылку для регистрации:\n"
-                f"{invitation_url}\n\n"
-                "Ссылка действует 7 дней."
-            ),
-            from_email=None,
-            recipient_list=[invitation.email],
-            fail_silently=False,
-        )
-    except Exception:
-        logger.exception(
-            "Не удалось отправить приглашение по email: invitation_id=%s",
-            invitation.id,
-        )
+        return deliver(invitation, invitation.created_by, lambda path: invitation_url, mailer=send_mail)
+    except DeliveryBlocked:
+        logger.warning('Invitation delivery no longer allowed: %s', invitation.pk)
 
 
 @login_required

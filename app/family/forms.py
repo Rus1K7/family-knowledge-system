@@ -2,8 +2,8 @@ from django import forms
 from django.utils import timezone
 import uuid
 
-from .models import Person, Relationship, RelativeProposal
-from .relationships import validate_ancestry
+from .models import Person, Relationship, RelativeProposal, PartnershipPeriod
+from .relationships import validate_ancestry, couple_relationships
 
 
 class RelativeProposalForm(forms.ModelForm):
@@ -11,14 +11,41 @@ class RelativeProposalForm(forms.ModelForm):
 
     class Meta:
         model = RelativeProposal
-        fields = ["relation_type", "first_name", "middle_name", "last_name", "birth_date",
+        fields = ["relation_type", "existing_person", "first_name", "middle_name", "last_name", "birth_date",
                   "is_living", "death_date", "biography", "invitation_email"]
         widgets = {"birth_date": forms.DateInput(attrs={"type": "date"}),
                    "death_date": forms.DateInput(attrs={"type": "date"}),
                    "biography": forms.Textarea(attrs={"rows": 5})}
 
+    def __init__(self, *args, mode="new", anchor=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mode, self.anchor = mode, anchor
+        self.fields["relation_type"].label = "Кем этот человек приходится выбранному родственнику"
+        if mode == "existing":
+            for name in ("first_name", "middle_name", "last_name", "birth_date", "is_living",
+                         "death_date", "biography", "invitation_email"):
+                self.fields.pop(name)
+            people = Person.objects.exclude(profile_status=Person.ProfileStatus.ARCHIVED)
+            if anchor:
+                people = people.exclude(pk=anchor.pk)
+            self.fields["existing_person"].queryset = people.order_by("last_name", "first_name")
+            self.fields["existing_person"].required = True
+        else:
+            self.fields.pop("existing_person")
+
     def clean(self):
         data = super().clean()
+        if self.mode == "existing":
+            relative = data.get("existing_person")
+            if relative and self.anchor and data.get("relation_type") in {"PARENT", "CHILD"}:
+                parent, child = (relative, self.anchor) if data["relation_type"] == "PARENT" else (self.anchor, relative)
+                validate_ancestry(parent.pk, child.pk)
+            if relative:
+                self.instance.first_name = relative.first_name
+                self.instance.middle_name = relative.middle_name
+                self.instance.last_name = relative.last_name
+                self.instance.is_living = relative.is_living
+            return data
         today = timezone.localdate()
         birth, death = data.get("birth_date"), data.get("death_date")
         if birth and birth > today:
@@ -40,6 +67,15 @@ class RelativeReviewForm(forms.Form):
     comment = forms.CharField(label="Комментарий к решению", required=False, max_length=2000,
                               widget=forms.Textarea(attrs={"rows": 3}))
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.is_bound and (self.data.get("decision") == "reject" or
+                not self.fields["send_invitation"].to_python(self.data.get("send_invitation"))):
+            # An unused invitation address must not block the family decision.
+            self.data = self.data.copy()
+            self.data["email"] = ""
+            self.data["send_invitation"] = ""
+
     def clean(self):
         data = super().clean()
         if data.get("decision") == "approve" and data.get("send_invitation") and not data.get("email"):
@@ -57,6 +93,7 @@ class AddRelativeForm(forms.Form):
         (RelationType.PARENT, "Родитель"),
         (RelationType.CHILD, "Ребёнок"),
         (RelationType.SPOUSE, "Супруг / супруга"),
+        ("PARTNER", "Партнёр"),
     ]
 
     relation_type = forms.ChoiceField(
@@ -133,6 +170,26 @@ class AddRelativeForm(forms.Form):
         return cleaned_data
 
 
+class PartnershipPeriodForm(forms.ModelForm):
+    class Meta:
+        model = PartnershipPeriod
+        fields = ["kind", "state", "start_year", "end_year"]
+        help_texts = {"start_year": "Если год неизвестен, оставьте поле пустым.",
+                      "end_year": "Развод или расставание не изменяет родительские связи."}
+
+    def clean(self):
+        data = super().clean()
+        if self.instance.relationship_id and all(k in data for k in ("kind", "state", "start_year", "end_year")):
+            relation = self.instance.relationship
+            periods = PartnershipPeriod.objects.filter(relationship__in=couple_relationships(
+                relation.person_a_id, relation.person_b_id)).exclude(pk=self.instance.pk)
+            if data["state"] == "CURRENT" and periods.filter(state="CURRENT").exists():
+                raise forms.ValidationError("У этой пары уже есть текущий период. Исправьте его или укажите завершение перед добавлением нового.")
+            if periods.filter(**{k: data[k] for k in ("kind", "state", "start_year", "end_year")}).exists():
+                raise forms.ValidationError("Такая запись уже есть. Исправьте существующую запись вместо добавления копии.")
+        return data
+
+
 class RelationshipAdminForm(forms.ModelForm):
     class Meta:
         model = Relationship
@@ -143,9 +200,14 @@ class RelationshipAdminForm(forms.ModelForm):
         a, b, kind = data.get("person_a"), data.get("person_b"), data.get("relationship_type")
         if not a or not b or not kind:
             return data
+        if self.instance.pk and self.instance.periods.exists():
+            previous = Relationship.objects.get(pk=self.instance.pk)
+            if {a.pk, b.pk} != {previous.person_a_id, previous.person_b_id} or kind not in {Relationship.Type.SPOUSE, Relationship.Type.PARTNER}:
+                raise forms.ValidationError("У связи есть история отношений. Нельзя перенести её на других людей или изменить на родительскую связь.")
         if a.pk == b.pk:
             raise forms.ValidationError("Нельзя связать человека с самим собой.")
-        existing = Relationship.objects.filter(relationship_type=kind).exclude(pk=self.instance.pk)
+        existing = (couple_relationships(a.pk, b.pk) if kind in {Relationship.Type.SPOUSE, Relationship.Type.PARTNER}
+                    else Relationship.objects.filter(relationship_type=kind)).exclude(pk=self.instance.pk)
         duplicate = existing.filter(person_a=a, person_b=b).exists()
         if kind in {Relationship.Type.SPOUSE, Relationship.Type.PARTNER, Relationship.Type.SIBLING}:
             duplicate = duplicate or existing.filter(person_a=b, person_b=a).exists()

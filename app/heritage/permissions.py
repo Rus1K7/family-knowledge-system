@@ -1,4 +1,4 @@
-from family.permissions import can_manage_person
+from family.permissions import can_manage_person, has_active_account, can_manage_relationships
 from privacy.permissions import can_view_resource
 
 from .models import MediaAsset
@@ -18,6 +18,11 @@ def available_source_documents(user, person):
 def can_view_media(user, media_asset):
     if media_asset.status == MediaAsset.Status.ARCHIVED:
         return False
+
+    if has_active_account(user) and media_asset.status == MediaAsset.Status.PENDING and (
+        media_asset.uploaded_by_id == user.pk or can_manage_relationships(user)
+    ):
+        return True
 
     if can_manage_person(user, media_asset.person):
         return True

@@ -269,10 +269,14 @@ def verify_backup(backup):
                 actual = int(run(psql + ["-c", f'SELECT count(*) FROM public."{table}"']))
                 if actual != count:
                     raise BackupError(f"Количество записей после восстановления не совпало: {table}.")
-            file_list = run(psql + ["-c",
-                "SELECT COALESCE(json_agg(file ORDER BY file), '[]'::json) "
-                "FROM (SELECT DISTINCT file FROM heritage_mediaasset WHERE file <> '') files"
-            ])
+            # Older backups predate circles; query only tables present in that snapshot.
+            references = [f"SELECT {field} AS file FROM {table} WHERE {field} <> ''"
+                for table, field in [('heritage_mediaasset', 'file'), ('circles_photo', 'file'),
+                                     ('circles_personalprofile', 'avatar')]
+                if table in manifest['table_counts']]
+            query = ("SELECT COALESCE(json_agg(file ORDER BY file), '[]'::json) FROM ("
+                + " UNION ".join(references) + ") files") if references else "SELECT '[]'::json"
+            file_list = run(psql + ["-c", query])
             if json.loads(file_list) != sorted(files):
                 raise BackupError("Файлы восстановленной базы не совпадают с архивом.")
             for relative, info in files.items():

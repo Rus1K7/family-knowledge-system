@@ -5,7 +5,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260924-ux">
     <title>{{ title }}</title>
 
 </head>
@@ -13,7 +13,7 @@
 <body>
 {% include 'family/navigation.html' %}
 
-<div class="container">
+<main class="narrow-page">
 
     <a
         class="back"
@@ -29,21 +29,22 @@
             Для: <strong>{{ person }}</strong>
         </p>
 
+        
+        <p class="form-explanation">Изменение появится в профиле после одобрения администратором или участником с правом проверки. Статус можно посмотреть в <a href="{% url 'profiles:my_change_requests' %}">моих изменениях</a>.</p>
         <form method="post">
 
             {% csrf_token %}
 
-            {{ form.as_p }}
+            {% include 'family/form_fields.html' %}
 
-            <button type="submit">
-                Сохранить
-            </button>
+            <div class="form-actions"><button type="submit" class="button-primary">Отправить на проверку</button>
+            <a href="{% url 'family:person_detail' person.id %}">Отмена</a></div>
 
         </form>
 
     </div>
 
-</div>
+</main>
 
 </body>
 

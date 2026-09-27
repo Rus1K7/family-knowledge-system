@@ -24,6 +24,7 @@ class User(AbstractUser):
         DISABLED = "DISABLED", _("Отключён")
 
     class SystemRole(models.TextChoices):
+        FRIEND = "FRIEND", _("Друг")
         FAMILY_MEMBER = "FAMILY_MEMBER", _("Член семьи")
         FAMILY_HISTORIAN = "FAMILY_HISTORIAN", _("Семейный историк")
         SYSTEM_ADMIN = "SYSTEM_ADMIN", _("Системный администратор")
@@ -50,6 +51,10 @@ class User(AbstractUser):
 
     mfa_enabled = models.BooleanField(
         default=False,
+    )
+
+    can_invite_friends = models.BooleanField(
+        "Может приглашать друзей", default=False,
     )
 
     disabled_at = models.DateTimeField(
@@ -149,3 +154,30 @@ class Invitation(models.Model):
 
     def __str__(self):
         return f"{self.person} → {self.email}"
+
+
+class InvitationEmailAttempt(models.Model):
+    """Delivery evidence, not proof of inbox delivery. No message body or token."""
+
+    class Status(models.TextChoices):
+        SENDING = 'SENDING', 'Отправляется / результат ещё не записан'
+        SUBMITTED = 'SUBMITTED', 'Принято почтовым сервером'
+        FAILED = 'FAILED', 'Не отправлено'
+        UNKNOWN = 'UNKNOWN', 'Результат не подтверждён'
+
+    invitation = models.ForeignKey(Invitation, null=True, blank=True, on_delete=models.CASCADE, related_name='email_attempts')
+    friend_invitation = models.ForeignKey('circles.FriendInvitation', null=True, blank=True, on_delete=models.CASCADE, related_name='email_attempts')
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.SENDING)
+    error_code = models.CharField(max_length=24, blank=True)
+    repeated = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at', '-pk']
+        constraints = [models.CheckConstraint(
+            condition=(models.Q(invitation__isnull=False, friend_invitation__isnull=True)
+                       | models.Q(invitation__isnull=True, friend_invitation__isnull=False)),
+            name='email_attempt_one_invitation',
+        )]

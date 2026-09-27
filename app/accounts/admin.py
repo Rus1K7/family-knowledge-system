@@ -29,6 +29,7 @@ class FamilyUserAdmin(UserAdmin):
                 "fields": (
                     "status",
                     "system_role",
+                    "can_invite_friends",
                     "mfa_enabled",
                     "disabled_at",
                 )

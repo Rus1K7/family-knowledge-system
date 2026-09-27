@@ -100,7 +100,7 @@ SECURE_CSP = {
 SECURE_CSP_REPORT_ONLY = {}
 
 LOGIN_URL = "family:login"
-LOGIN_REDIRECT_URL = "family:home"
+LOGIN_REDIRECT_URL = "circles:entry"
 LOGOUT_REDIRECT_URL = "family:login"
 # One-use password reset links are intentionally short-lived.
 PASSWORD_RESET_TIMEOUT = 60 * 60
@@ -109,7 +109,7 @@ PASSWORD_RESET_TIMEOUT = 60 * 60
 
 INSTALLED_APPS = [
     "config.apps.ConfigConfig",
-    "django.contrib.admin",
+    "config.admin_apps.FamilyAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -125,6 +125,9 @@ INSTALLED_APPS = [
     "privacy.apps.PrivacyConfig",
     "heritage.apps.HeritageConfig",
     "audit.apps.AuditConfig",
+    "circles.apps.CirclesConfig",
+    "product.apps.ProductConfig",
+    "assessments.apps.AssessmentsConfig",
 ]
 
 MIDDLEWARE = [
@@ -139,11 +142,13 @@ if not DEBUG:
 
 MIDDLEWARE += [
     'django.middleware.csp.ContentSecurityPolicyMiddleware',
+    'heritage.storage_quota.StorageQuotaMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'accounts.middleware.LoginRateLimitMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'product.middleware.ProductMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -162,6 +167,8 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "django.template.context_processors.csp",
                 "family.context_processors.navigation",
+                "assessments.context_processors.invitation",
+                "product.hints.offer",
             ],
         },
     },

@@ -1,4 +1,6 @@
 import uuid
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from django.conf import settings
 from django.db import models
@@ -16,10 +18,13 @@ class RelativeProposal(models.Model):
         PARENT = "PARENT", "Родитель"
         CHILD = "CHILD", "Ребёнок"
         SPOUSE = "SPOUSE", "Супруг / супруга"
+        PARTNER = "PARTNER", "Партнёр"
         SIBLING = "SIBLING", "Брат / сестра"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     anchor = models.ForeignKey("Person", on_delete=models.PROTECT, related_name="relative_proposals")
+    existing_person = models.ForeignKey("Person", on_delete=models.PROTECT, null=True, blank=True,
+                                       related_name="relationship_proposals", verbose_name="Человек из семьи")
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
                                      related_name="relative_proposals")
     relation_type = models.CharField("Кем приходится", max_length=20, choices=RelationType.choices)
@@ -31,6 +36,7 @@ class RelativeProposal(models.Model):
     death_date = models.DateField("Дата смерти", null=True, blank=True)
     biography = models.TextField("Что известно о человеке", max_length=10000, blank=True)
     invitation_email = models.EmailField("Email для приглашения (необязательно)", blank=True)
+    family_details = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     requested_at = models.DateTimeField(auto_now_add=True)
     reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
@@ -51,6 +57,11 @@ class RelativeProposal(models.Model):
         return " ".join(part for part in (self.first_name, self.middle_name, self.last_name) if part)
 
 class Person(models.Model):
+    portrait = models.ForeignKey(
+        "heritage.MediaAsset", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="portrait_for_people", verbose_name="Фотография профиля",
+    )
+
     class DatePrecision(models.TextChoices):
         EXACT = "EXACT", _("Точная дата")
         MONTH_ONLY = "MONTH_ONLY", _("Известны месяц и год")
@@ -255,6 +266,7 @@ class Relationship(models.Model):
     class Meta:
         verbose_name = _("Родственная связь")
         verbose_name_plural = _("Родственные связи")
+        permissions = [("manage_family_relationships", "Может управлять связями и одобрять родственников")]
 
         constraints = [
             models.CheckConstraint(
@@ -271,3 +283,65 @@ class Relationship(models.Model):
             f"{self.relationship_type} "
             f"{self.person_b}"
         )
+
+
+class PartnershipPeriod(models.Model):
+    """One period of a couple's history, independent of parenthood."""
+    class Kind(models.TextChoices):
+        MARRIAGE = "MARRIAGE", "Брак"
+        PARTNERSHIP = "PARTNERSHIP", "Партнёрство"
+
+    class State(models.TextChoices):
+        UNKNOWN = "UNKNOWN", "Статус не указан"
+        CURRENT = "CURRENT", "Отношения продолжаются"
+        DIVORCED = "DIVORCED", "Развелись"
+        SEPARATED = "SEPARATED", "Расстались"
+        ENDED = "ENDED", "Союз завершён"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    relationship = models.ForeignKey(Relationship, on_delete=models.CASCADE, related_name="periods")
+    kind = models.CharField("Тип союза", max_length=20, choices=Kind.choices)
+    state = models.CharField("Состояние отношений", max_length=20, choices=State.choices, default=State.UNKNOWN)
+    start_year = models.PositiveSmallIntegerField("Год начала", null=True, blank=True)
+    end_year = models.PositiveSmallIntegerField("Год завершения", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start_year", "created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["relationship"], condition=models.Q(state="CURRENT"), name="one_current_period_per_relationship"),
+            models.CheckConstraint(condition=models.Q(end_year__isnull=True) | models.Q(start_year__isnull=True) | models.Q(end_year__gte=models.F("start_year")), name="partnership_year_order"),
+            models.CheckConstraint(condition=~models.Q(state="CURRENT") | models.Q(end_year__isnull=True), name="current_partnership_no_end"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.relationship_id and self.relationship.relationship_type not in {Relationship.Type.SPOUSE, Relationship.Type.PARTNER}:
+            raise ValidationError("История отношений доступна только для супругов и партнёров.")
+        for field in ("start_year", "end_year"):
+            year = getattr(self, field)
+            if year is not None and not 1 <= year <= timezone.localdate().year:
+                raise ValidationError({field: "Укажите прошедший или текущий год либо оставьте поле пустым."})
+        if self.start_year and self.end_year and self.end_year < self.start_year:
+            raise ValidationError({"end_year": "Год завершения не может быть раньше начала."})
+        if self.state == self.State.CURRENT and self.end_year is not None:
+            raise ValidationError({"end_year": "У продолжающихся отношений нет года завершения."})
+        if self.state == self.State.DIVORCED and self.kind != self.Kind.MARRIAGE:
+            raise ValidationError({"state": "Для партнёрства выберите «Расстались» или «Союз завершён»."})
+        if self.state == self.State.CURRENT and self.relationship_id and type(self).objects.filter(
+            relationship_id=self.relationship_id, state=self.State.CURRENT,
+        ).exclude(pk=self.pk).exists():
+            raise ValidationError({"state": "У этой связи уже есть продолжающийся период. Сначала уточните его состояние."})
+
+    @property
+    def summary(self):
+        label = self.get_state_display()
+        if self.state == self.State.CURRENT:
+            label = "В браке" if self.kind == self.Kind.MARRIAGE else "В партнёрстве"
+        if self.start_year and self.end_year:
+            return f"{self.get_kind_display()} · {self.start_year}–{self.end_year} · {label}"
+        if self.end_year:
+            return f"{label} · {self.end_year}"
+        if self.start_year:
+            return f"{self.get_kind_display()} · с {self.start_year} · {label}"
+        return f"{self.get_kind_display()} · {label}"

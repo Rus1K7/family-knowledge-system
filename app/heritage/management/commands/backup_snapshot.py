@@ -10,6 +10,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 
 from heritage.models import MediaAsset
+from heritage.private_files import registered_private_files
 
 
 class Command(BaseCommand):
@@ -47,7 +48,7 @@ class Command(BaseCommand):
 
             storage = MediaAsset._meta.get_field("file").storage
             root = Path(storage.location).resolve()
-            names = sorted(set(MediaAsset.objects.exclude(file="").values_list("file", flat=True)))
+            names = sorted(registered_private_files(root))
             paths = {}
             for name in names:
                 relative = PurePosixPath(name)

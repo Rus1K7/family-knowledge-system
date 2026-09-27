@@ -29,6 +29,9 @@
 
 
     {% for item in items %}
+        {% if item.request.resource_type == "PERSON" %}
+        <article class="request"><h2>Основные сведения · {{ item.person }}</h2><p>Предложил: {{ item.request.requested_by }}</p><a href="{% url 'family:person_proposal' item.request.id %}">Сравнить и рассмотреть изменения</a></article>
+        {% else %}
 
         <div class="request">
 
@@ -92,7 +95,7 @@
 
                             <p>
                                 <strong>
-                                    {{ row.field }}:
+                                    {{ row.label }}:
                                 </strong>
 
                                 {{ row.value|default:"—" }}
@@ -119,10 +122,10 @@
 
                         <p>
                             <strong>
-                                {{ row.field }}:
+                                {{ row.label }}:
                             </strong>
 
-                            {{ row.value|default:"—" }}
+                            <br>Сейчас: {{ row.before|default_if_none:"—" }}<br>Предлагается: {{ row.value|default_if_none:"—" }}
                         </p>
 
                     {% endfor %}
@@ -179,7 +182,8 @@
 
         </div>
 
-    {% empty %}
+    {% endif %}
+{% empty %}
 
         <p>
             Запросов, ожидающих рассмотрения, нет.

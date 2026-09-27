@@ -1,3 +1,5 @@
+from django.contrib import messages
+from family.permissions import can_propose_person, can_propose_resource, can_manage_relationships
 from functools import wraps
 
 from django.contrib.auth.decorators import login_required
@@ -14,7 +16,8 @@ from audit.models import AuditEvent
 from audit.services import log_audit_event
 from family.permissions import can_manage_person
 from family.models import Person
-from heritage.models import Biography, LifeEvent
+from heritage.models import Biography, LifeEvent, MediaAsset
+from heritage.forms import MediaAssetMetadataForm
 from network.models import HelpOffer
 
 from .forms import EducationForm, EmploymentForm, SkillForm
@@ -30,10 +33,7 @@ def system_admin_required(view_func):
     @wraps(view_func)
     @login_required
     def wrapper(request, *args, **kwargs):
-        is_admin = (
-            request.user.is_superuser
-            or request.user.system_role == User.SystemRole.SYSTEM_ADMIN
-        )
+        is_admin = can_manage_relationships(request.user)
 
         if not is_admin:
             raise PermissionDenied
@@ -44,6 +44,8 @@ def system_admin_required(view_func):
 
 def get_change_target(change_request):
     model_map = {
+        ProfileChangeRequest.ResourceType.PERSON: Person,
+        ProfileChangeRequest.ResourceType.MEDIA_ASSET: MediaAsset,
         ProfileChangeRequest.ResourceType.EMPLOYMENT: Employment,
         ProfileChangeRequest.ResourceType.EDUCATION: Education,
         ProfileChangeRequest.ResourceType.SKILL: Skill,
@@ -85,7 +87,7 @@ def get_change_person(change_request):
     if target is None:
         return None
 
-    return target.person
+    return target if isinstance(target, Person) else target.person
 
 
 @login_required
@@ -139,7 +141,7 @@ def change_request_list(request):
             )
 
             if target is not None:
-                target_person = target.person
+                target_person = target if isinstance(target, Person) else target.person
 
         proposed_rows = []
 
@@ -149,6 +151,15 @@ def change_request_list(request):
             proposed_rows.append(
                 {
                     "field": field_name,
+                    "label": {"text": "Биография", "title": "Название", "description": "Описание",
+                              "organization": "Организация", "position": "Должность", "start_date": "Дата начала",
+                              "end_date": "Дата окончания", "is_current": "По настоящее время",
+                              "institution": "Учебное заведение", "degree": "Квалификация",
+                              "field_of_study": "Направление", "start_year": "Год начала", "end_year": "Год окончания",
+                              "name": "Название", "category": "Категория", "is_active": "Актуально",
+                              "event_type": "Тип события", "event_date": "Дата события", "date_precision": "Точность даты",
+                              "place": "Место", "location": "Место"}.get(field_name, field_name),
+                    "before": getattr(target, field_name, "—") if target else "—",
                     "value": value,
                 }
             )
@@ -178,6 +189,9 @@ def approve_change_request(request, request_id):
         id=request_id,
         status=ProfileChangeRequest.Status.PENDING,
     )
+
+    if change_request.resource_type == ProfileChangeRequest.ResourceType.PERSON:
+        return redirect("family:person_proposal", proposal_id=change_request.pk)
 
     data = change_request.proposed_data
     audit_person = None
@@ -360,6 +374,11 @@ def approve_change_request(request, request_id):
                 "Исходная запись не существует."
             )
 
+        if change_request.resource_type == ProfileChangeRequest.ResourceType.MEDIA_ASSET and (
+            change_request.action != ProfileChangeRequest.Action.EDIT or target.status == MediaAsset.Status.ARCHIVED
+        ):
+            raise PermissionDenied("Описание этого файла нельзя применить.")
+
         audit_person = target.person
         audit_object_id = target.id
 
@@ -374,7 +393,12 @@ def approve_change_request(request, request_id):
             == ProfileChangeRequest.Action.EDIT
         ):
 
-            if (
+            if change_request.resource_type == ProfileChangeRequest.ResourceType.MEDIA_ASSET:
+                form = MediaAssetMetadataForm(data, instance=target)
+                if not form.is_valid():
+                    raise PermissionDenied("Проверьте корректность описания файла.")
+                form.save()
+            elif (
                 change_request.resource_type
                 == ProfileChangeRequest.ResourceType.EMPLOYMENT
             ):
@@ -567,6 +591,8 @@ def approve_change_request(request, request_id):
 @require_POST
 @transaction.atomic
 def reject_change_request(request, request_id):
+    if ProfileChangeRequest.objects.filter(pk=request_id, resource_type=ProfileChangeRequest.ResourceType.PERSON).exists():
+        return redirect("family:person_proposal", proposal_id=request_id)
     change_request = get_object_or_404(
         ProfileChangeRequest.objects.select_for_update(),
         id=request_id,
@@ -621,10 +647,7 @@ def add_employment(request, person_id):
         id=person_id,
     )
 
-    if not can_manage_person(
-            request.user,
-            person,
-    ):
+    if not can_propose_person(request.user, person):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -633,7 +656,7 @@ def add_employment(request, person_id):
         form = EmploymentForm(request.POST)
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EMPLOYMENT
                 ),
@@ -672,6 +695,7 @@ def add_employment(request, person_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -698,10 +722,7 @@ def add_education(request, person_id):
         id=person_id,
     )
 
-    if not can_manage_person(
-            request.user,
-            person,
-    ):
+    if not can_propose_person(request.user, person):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -710,7 +731,7 @@ def add_education(request, person_id):
         form = EducationForm(request.POST)
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EDUCATION
                 ),
@@ -745,6 +766,7 @@ def add_education(request, person_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -771,10 +793,7 @@ def add_skill(request, person_id):
         id=person_id,
     )
 
-    if not can_manage_person(
-            request.user,
-            person,
-    ):
+    if not can_propose_person(request.user, person):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -783,7 +802,7 @@ def add_skill(request, person_id):
         form = SkillForm(request.POST)
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.SKILL
                 ),
@@ -802,6 +821,7 @@ def add_skill(request, person_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -829,10 +849,7 @@ def edit_employment(request, employment_id):
         id=employment_id,
     )
 
-    if not can_manage_person(
-            request.user,
-            employment.person,
-    ):
+    if not can_propose_resource(request.user, employment.person, "EMPLOYMENT", employment.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -866,7 +883,7 @@ def edit_employment(request, employment_id):
             # ВАЖНО:
             # здесь НЕТ form.save()
 
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EMPLOYMENT
                 ),
@@ -890,6 +907,7 @@ def edit_employment(request, employment_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -917,10 +935,7 @@ def edit_education(request, education_id):
         Education,
         id=education_id,
     )
-    if not can_manage_person(
-            request.user,
-            education.person,
-    ):
+    if not can_propose_resource(request.user, education.person, "EDUCATION", education.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -949,7 +964,7 @@ def edit_education(request, education_id):
 
         if form.is_valid():
 
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.EDUCATION
                 ),
@@ -965,6 +980,7 @@ def edit_education(request, education_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -992,10 +1008,7 @@ def edit_skill(request, skill_id):
         Skill,
         id=skill_id,
     )
-    if not can_manage_person(
-            request.user,
-            skill.person,
-    ):
+    if not can_propose_resource(request.user, skill.person, "SKILL", skill.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -1024,7 +1037,7 @@ def edit_skill(request, skill_id):
 
         if form.is_valid():
 
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.SKILL
                 ),
@@ -1036,6 +1049,7 @@ def edit_skill(request, skill_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -1063,10 +1077,7 @@ def delete_employment(request, employment_id):
         Employment,
         id=employment_id,
     )
-    if not can_manage_person(
-            request.user,
-            employment.person,
-    ):
+    if not can_propose_resource(request.user, employment.person, "EMPLOYMENT", employment.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -1088,12 +1099,13 @@ def delete_employment(request, employment_id):
         )
 
     if request.method == "POST":
-        submit_change_request(
+        proposal, created = submit_change_request(
             resource_type=ProfileChangeRequest.ResourceType.EMPLOYMENT,
             object_id=employment.id,
             action=ProfileChangeRequest.Action.DELETE,
             requested_by=request.user,
         )
+        messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
         return redirect(
             "family:person_detail",
@@ -1116,10 +1128,7 @@ def delete_education(request, education_id):
         Education,
         id=education_id,
     )
-    if not can_manage_person(
-            request.user,
-            education.person,
-    ):
+    if not can_propose_resource(request.user, education.person, "EDUCATION", education.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -1141,12 +1150,13 @@ def delete_education(request, education_id):
         )
 
     if request.method == "POST":
-        submit_change_request(
+        proposal, created = submit_change_request(
             resource_type=ProfileChangeRequest.ResourceType.EDUCATION,
             object_id=education.id,
             action=ProfileChangeRequest.Action.DELETE,
             requested_by=request.user,
         )
+        messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
         return redirect(
             "family:person_detail",
@@ -1169,10 +1179,7 @@ def delete_skill(request, skill_id):
         Skill,
         id=skill_id,
     )
-    if not can_manage_person(
-            request.user,
-            skill.person,
-    ):
+    if not can_propose_resource(request.user, skill.person, "SKILL", skill.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -1194,12 +1201,13 @@ def delete_skill(request, skill_id):
         )
 
     if request.method == "POST":
-        submit_change_request(
+        proposal, created = submit_change_request(
             resource_type=ProfileChangeRequest.ResourceType.SKILL,
             object_id=skill.id,
             action=ProfileChangeRequest.Action.DELETE,
             requested_by=request.user,
         )
+        messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
         return redirect(
             "family:person_detail",

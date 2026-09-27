@@ -1,3 +1,5 @@
+from django.contrib import messages
+from family.permissions import can_propose_person, can_propose_resource, can_manage_relationships
 import logging
 
 from django.contrib.auth.decorators import login_required
@@ -103,10 +105,7 @@ def add_biography(request, person_id):
         id=person_id,
     )
 
-    if not can_manage_person(
-        request.user,
-        person,
-    ):
+    if not can_propose_person(request.user, person):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -148,7 +147,7 @@ def add_biography(request, person_id):
         )
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.BIOGRAPHY
                 ),
@@ -160,6 +159,7 @@ def add_biography(request, person_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -186,10 +186,7 @@ def edit_biography(request, biography_id):
         id=biography_id,
     )
 
-    if not can_manage_person(
-        request.user,
-        biography.person,
-    ):
+    if not can_propose_resource(request.user, biography.person, "BIOGRAPHY", biography.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -219,7 +216,7 @@ def edit_biography(request, biography_id):
         )
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.BIOGRAPHY
                 ),
@@ -230,6 +227,7 @@ def edit_biography(request, biography_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -258,16 +256,13 @@ def delete_biography(request, biography_id):
         id=biography_id,
     )
 
-    if not can_manage_person(
-        request.user,
-        biography.person,
-    ):
+    if not can_propose_resource(request.user, biography.person, "BIOGRAPHY", biography.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
 
     if request.method == "POST":
-        submit_change_request(
+        proposal, created = submit_change_request(
             resource_type=(
                 ProfileChangeRequest.ResourceType.BIOGRAPHY
             ),
@@ -275,6 +270,7 @@ def delete_biography(request, biography_id):
             action=ProfileChangeRequest.Action.DELETE,
             requested_by=request.user,
         )
+        messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
         return redirect(
             "family:person_detail",
@@ -298,10 +294,7 @@ def add_life_event(request, person_id):
         id=person_id,
     )
 
-    if not can_manage_person(
-        request.user,
-        person,
-    ):
+    if not can_propose_person(request.user, person):
         raise PermissionDenied
 
     if request.method == "POST":
@@ -310,7 +303,7 @@ def add_life_event(request, person_id):
         )
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.LIFE_EVENT
                 ),
@@ -337,6 +330,7 @@ def add_life_event(request, person_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -363,10 +357,7 @@ def edit_life_event(request, event_id):
         id=event_id,
     )
 
-    if not can_manage_person(
-        request.user,
-        event.person,
-    ):
+    if not can_propose_resource(request.user, event.person, "LIFE_EVENT", event.id):
         raise PermissionDenied
 
     pending = ProfileChangeRequest.objects.filter(
@@ -394,7 +385,7 @@ def edit_life_event(request, event_id):
         )
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.LIFE_EVENT
                 ),
@@ -420,6 +411,7 @@ def edit_life_event(request, event_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -448,14 +440,11 @@ def delete_life_event(request, event_id):
         id=event_id,
     )
 
-    if not can_manage_person(
-        request.user,
-        event.person,
-    ):
+    if not can_propose_resource(request.user, event.person, "LIFE_EVENT", event.id):
         raise PermissionDenied
 
     if request.method == "POST":
-        submit_change_request(
+        proposal, created = submit_change_request(
             resource_type=(
                 ProfileChangeRequest.ResourceType.LIFE_EVENT
             ),
@@ -463,6 +452,7 @@ def delete_life_event(request, event_id):
             action=ProfileChangeRequest.Action.DELETE,
             requested_by=request.user,
         )
+        messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
         return redirect(
             "family:person_detail",
@@ -980,10 +970,7 @@ def upload_media_asset(request, person_id):
         id=person_id,
     )
 
-    if not can_manage_person(
-        request.user,
-        person,
-    ):
+    if not can_propose_person(request.user, person):
         raise PermissionDenied(
             "У вас нет права добавлять файлы этому человеку."
         )
@@ -1087,6 +1074,7 @@ def upload_media_asset(request, person_id):
 
                 raise
 
+            messages.success(request, "Файл отправлен на проверку. Семья увидит его после одобрения.")
             return redirect(
                 "family:person_detail",
                 person_id=person.id,
@@ -1162,9 +1150,9 @@ def serve_media_asset(request, media_id):
 
 @login_required
 def media_moderation_list(request):
-    if not is_system_admin(request.user):
+    if not can_manage_relationships(request.user):
         raise PermissionDenied(
-            "Только системный администратор может проверять файлы."
+            "Проверять файлы может администратор или участник с правом одобрения."
         )
 
     pending_media = (
@@ -1192,9 +1180,9 @@ def media_moderation_list(request):
 @require_POST
 @transaction.atomic
 def approve_media_asset(request, media_id):
-    if not is_system_admin(request.user):
+    if not can_manage_relationships(request.user):
         raise PermissionDenied(
-            "Только системный администратор может проверять файлы."
+            "Проверять файлы может администратор или участник с правом одобрения."
         )
 
     media_asset = get_object_or_404(
@@ -1241,9 +1229,9 @@ def approve_media_asset(request, media_id):
 @require_POST
 @transaction.atomic
 def reject_media_asset(request, media_id):
-    if not is_system_admin(request.user):
+    if not can_manage_relationships(request.user):
         raise PermissionDenied(
-            "Только системный администратор может проверять файлы."
+            "Проверять файлы может администратор или участник с правом одобрения."
         )
 
     media_asset = get_object_or_404(
@@ -1291,7 +1279,7 @@ def reject_media_asset(request, media_id):
 @transaction.atomic
 def archive_media_asset(request, media_id):
     media_asset = get_object_or_404(
-        MediaAsset.objects.select_for_update().select_related("person"),
+        MediaAsset.objects.select_related("person"),
         id=media_id,
     )
 
@@ -1329,17 +1317,16 @@ def archive_media_asset(request, media_id):
 
 
 @login_required
-@transaction.atomic
 def edit_media_asset(request, media_id):
     media_asset = get_object_or_404(
-        MediaAsset.objects.select_for_update().select_related("person"),
+        MediaAsset.objects.select_related("person"),
         id=media_id,
     )
 
     if media_asset.status == MediaAsset.Status.ARCHIVED:
         raise Http404
 
-    if not can_manage_person(request.user, media_asset.person):
+    if not (can_propose_person(request.user, media_asset.person) and can_view_media(request.user, media_asset)):
         raise PermissionDenied(
             "У вас нет права изменять этот файл."
         )
@@ -1356,25 +1343,17 @@ def edit_media_asset(request, media_id):
         )
 
         if form.is_valid():
-            changed_fields = [
-                field_name
-                for field_name, old_value in old_values.items()
-                if old_value != form.cleaned_data[field_name]
-            ]
-            form.save()
-
-            if changed_fields:
-                log_audit_event(
-                    actor=request.user,
-                    action=AuditEvent.Action.UPDATE_MEDIA,
-                    person=media_asset.person,
-                    resource_type="MEDIA_ASSET",
-                    object_id=media_asset.id,
-                    details={
-                        "media_id": str(media_asset.id),
-                        "changed_fields": sorted(changed_fields),
-                    },
+            if form.has_changed():
+                proposal, created = submit_change_request(
+                    resource_type=ProfileChangeRequest.ResourceType.MEDIA_ASSET,
+                    object_id=media_asset.pk, action=ProfileChangeRequest.Action.EDIT,
+                    requested_by=request.user,
+                    proposed_data={key: form.cleaned_data[key] for key in ("title", "description")},
                 )
+                messages.info(request, "Описание отправлено на одобрение." if created else
+                              "Для этого файла уже есть предложение. Новые изменения не отправлены — дождитесь решения.")
+            else:
+                messages.info(request, "Изменений нет.")
 
             return redirect(
                 "family:person_detail",
@@ -1389,6 +1368,6 @@ def edit_media_asset(request, media_id):
         {
             "form": form,
             "person": media_asset.person,
-            "title": "Изменить описание файла",
+            "title": "Предложить описание файла",
         },
     )

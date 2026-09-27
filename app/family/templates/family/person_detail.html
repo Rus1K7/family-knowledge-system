@@ -1,4 +1,4 @@
-{% load static %}
+{% load static family_navigation %}
 <!DOCTYPE html>
 <html lang="ru">
 
@@ -8,7 +8,7 @@
 
     <title>{{ person }}</title>
 
-    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260920">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260924-ux">
 
 </head>
 
@@ -20,23 +20,27 @@
 
     <a
         class="back"
-        href="{% url 'family:home' %}">
-        ← Семейный круг
+        href="{{ return_to }}">
+        ← {{ back_label }}
     </a>
 
 
     <div class="profile-identity">
-        <span class="person-avatar profile-avatar" aria-hidden="true">{{ person.first_name|first }}{{ person.last_name|first }}</span>
-        <div><h1>{{ person }}</h1>
+        <span class="person-avatar profile-avatar" aria-hidden="true">{{ person.first_name|first }}{{ person.last_name|first }}{% if portrait_url %}<img class="profile-photo" src="{{ portrait_url }}" alt="">{% endif %}</span>
+        <div><p class="profile-context">Семейный профиль</p><h1>{{ person }}</h1>
         {% if person.birth_date %}<p class="secondary">Дата рождения: {{ person.birth_date }}</p>{% endif %}
+        {% if not person.is_living %}<p class="secondary">{% if person.death_date %}Дата смерти: {{ person.death_date }}{% else %}Человек умер · дата смерти не указана{% endif %}</p>{% endif %}
         <p class="secondary">{{ person.get_profile_status_display }}</p></div>
     </div>
     <div class="profile-actions">
-        {% if family_navigation.enabled %}<a class="button-secondary" href="{% url 'family:propose_relative' person.id %}">Предложить родственника</a>{% endif %}
-        {% if can_admin %}<a class="text-action" href="{% url 'family:add_relative' person.id %}">Добавить родственника</a>{% endif %}
+        {% if family_navigation.enabled %}<a class="button-secondary" href="{% url 'family:add_relative' person.id %}?mode=existing&amp;return_to={{ request.get_full_path|urlencode }}">{% if family_navigation.can_manage_relationships %}Добавить связь между людьми{% else %}Предложить связь между людьми{% endif %}</a>{% endif %}
+        {% if family_navigation.enabled %}<a class="button-secondary" {% url 'family:propose_person' person.id as edit_name_url %}href="{{ edit_name_url|with_return:request.get_full_path }}">Имя, даты и фото профиля</a>{% endif %}
+        <a class="button-secondary" href="{% url 'family:tree' %}?person={{ person.id }}">Показать семейные связи</a>
+        {% if family_navigation.enabled %}<a class="button-secondary" {% url 'family:add_relative' person.id as journey_url %}href="{{ journey_url|with_return:request.get_full_path }}">{% if family_navigation.can_manage_relationships %}Добавить родственника или связь{% else %}Предложить родственника или связь{% endif %}</a>{% endif %}
         {% if can_manage and pending_access_requests_count %}<a class="text-action" href="{% url 'privacy:access_request_list' %}">Запросы доступа · {{ pending_access_requests_count }}</a>{% endif %}
     </div>
 
+<p class="hint">Знаете больше об этом человеке? Предложите дополнения в нужном разделе — они появятся после одобрения.</p>
 <div class="profile-tabs" role="tablist" aria-label="Разделы профиля" hidden>
 <button type="button" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0" data-profile-tab="overview">Семья</button>
 <button type="button" role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" tabindex="-1" data-profile-tab="history">История жизни</button>
@@ -64,7 +68,7 @@
 
                 <a
                     class="relative"
-                    href="{% url 'family:person_detail' relative.id %}">
+                    {% url 'family:person_detail' relative.id as journey_url %}href="{{ journey_url|with_return:request.get_full_path }}">
                     {{ relative }}
                 </a>
 
@@ -75,18 +79,13 @@
 
         {% if spouses %}
 
-            <h3>
-                Супруг / партнёр
+            <h3 id="relationships">
+                Супруги и партнёры · история отношений
             </h3>
 
-            {% for relative in spouses %}
-
-                <a
-                    class="relative"
-                    href="{% url 'family:person_detail' relative.id %}">
-                    {{ relative }}
-                </a>
-
+            {% for couple in couple_histories %}
+                <div class="card"><a class="relative" {% url 'family:person_detail' couple.person.id as journey_url %}href="{{ journey_url|with_return:request.get_full_path }}">{{ couple.person }}</a>
+                <p><a {% url 'family:partnership_history' couple.relationship.id as history_url %}href="{{ history_url|with_return:request.get_full_path }}">История отношений · брак, развод, исправление связи</a></p></div>
             {% endfor %}
 
         {% endif %}
@@ -102,7 +101,7 @@
 
                 <a
                     class="relative"
-                    href="{% url 'family:person_detail' relative.id %}">
+                    {% url 'family:person_detail' relative.id as journey_url %}href="{{ journey_url|with_return:request.get_full_path }}">
                     {{ relative }}
                 </a>
 
@@ -121,7 +120,7 @@
 
                 <a
                     class="relative"
-                    href="{% url 'family:person_detail' relative.id %}">
+                    {% url 'family:person_detail' relative.id as journey_url %}href="{{ journey_url|with_return:request.get_full_path }}">
                     {{ relative }}
                 </a>
 
@@ -315,7 +314,8 @@
                         {% endif %}
 
 
-                        {% if can_manage %}
+                        {% if family_navigation.enabled and not can_manage %}<p><a href="{% url 'heritage:edit_biography' biography.id %}">Предложить исправление</a></p>{% endif %}
+{% if can_manage %}
 
                             <p>
                                 <a href="{% url 'heritage:create_source_for_resource' 'BIOGRAPHY' biography.id %}">
@@ -331,7 +331,7 @@
 
                             <p>
                                 <a href="{% url 'heritage:edit_biography' biography.id %}">
-                                    Редактировать
+                                    Предложить исправление
                                 </a>
 
                                 ·
@@ -362,7 +362,7 @@
                 Биография пока не добавлена.
             </div>
 
-            {% if can_manage %}
+            {% if family_navigation.enabled %}
                 <p>
                     <a href="{% url 'heritage:add_biography' person.id %}">
                         + Предложить биографию
@@ -381,7 +381,7 @@
         </h2>
 
 
-        {% if can_manage %}
+        {% if family_navigation.enabled %}
             <p>
                 <a href="{% url 'heritage:add_life_event' person.id %}">
                     + Предложить событие
@@ -580,7 +580,8 @@
                         {% endif %}
 
 
-                        {% if can_manage %}
+                        {% if family_navigation.enabled and not can_manage %}<p><a href="{% url 'heritage:edit_life_event' event.id %}">Предложить исправление</a></p>{% endif %}
+{% if can_manage %}
 
                             <p>
                                 <a href="{% url 'heritage:create_source_for_resource' 'LIFE_EVENT' event.id %}">
@@ -596,7 +597,7 @@
 
                             <p>
                                 <a href="{% url 'heritage:edit_life_event' event.id %}">
-                                    Редактировать
+                                    Предложить исправление
                                 </a>
 
                                 ·
@@ -639,7 +640,7 @@
         </h2>
 
 
-        {% if can_manage %}
+        {% if family_navigation.enabled %}
 
             <p>
                 <a href="{% url 'heritage:upload_media_asset' person.id %}">
@@ -753,11 +754,12 @@
                         {% endif %}
 
 
-                        {% if can_manage %}
+                        {% if family_navigation.enabled and not can_manage %}<p><a href="{% url 'heritage:edit_media_asset' media.id %}">Предложить исправление описания</a></p>{% endif %}
+{% if can_manage %}
 
                             <p>
                                 <a href="{% url 'heritage:edit_media_asset' media.id %}">
-                                    ✏️ Изменить описание
+                                    Предложить исправление описания
                                 </a>
                             </p>
 
@@ -804,7 +806,7 @@
 
 
 
-            {% if can_manage %}
+            {% if family_navigation.enabled %}
                 <p>
                     <a href="{% url 'profiles:add_employment' person.id %}">
                         + Предложить место работы
@@ -862,11 +864,12 @@
                     {% endif %}
 
 
-                    {% if can_manage %}
+                    {% if family_navigation.enabled and not can_manage %}<p><a href="{% url 'profiles:edit_employment' employment.id %}">Предложить исправление</a></p>{% endif %}
+{% if can_manage %}
 
                         <p>
                             <a href="{% url 'profiles:edit_employment' employment.id %}">
-                                Редактировать
+                                Предложить исправление
                             </a>
 
                             ·
@@ -908,7 +911,7 @@
             Образование
         </h2>
 
-                {% if can_manage %}
+                {% if family_navigation.enabled %}
                     <p>
                         <a href="{% url 'profiles:add_education' person.id %}">
                             + Предложить образование
@@ -959,11 +962,12 @@
                             </div>
                         {% endif %}
 
-                        {% if can_manage %}
+                        {% if family_navigation.enabled and not can_manage %}<p><a href="{% url 'profiles:edit_education' education.id %}">Предложить исправление</a></p>{% endif %}
+{% if can_manage %}
 
                             <p>
                                 <a href="{% url 'profiles:edit_education' education.id %}">
-                                    Редактировать
+                                    Предложить исправление
                                 </a>
 
                                 ·
@@ -1006,7 +1010,7 @@
             Навыки
         </h2>
 
-            {% if can_manage %}
+            {% if family_navigation.enabled %}
 
                 <p>
                     <a href="{% url 'profiles:add_skill' person.id %}">
@@ -1040,7 +1044,8 @@
 
                             {{ skill.name }}
 
-                            {% if can_manage %}
+                            {% if family_navigation.enabled and not can_manage %}<p><a href="{% url 'profiles:edit_skill' skill.id %}">Предложить исправление</a></p>{% endif %}
+{% if can_manage %}
 
                                 <a href="{% url 'profiles:edit_skill' skill.id %}">
                                     ✎
@@ -1079,7 +1084,7 @@
         <h2>
             Могу помочь
         </h2>
-        {% if can_manage %}
+        {% if family_navigation.enabled %}
             <p>
                 <a href="{% url 'network:add_help_offer' person.id %}">
                     + Предложить помощь
@@ -1121,11 +1126,12 @@
                             </p>
                         {% endif %}
 
-                        {% if can_manage %}
+                        {% if family_navigation.enabled and not can_manage %}<p><a href="{% url 'network:edit_help_offer' offer.id %}">Предложить исправление</a></p>{% endif %}
+{% if can_manage %}
 
                             <p>
                                 <a href="{% url 'network:edit_help_offer' offer.id %}">
-                                    Редактировать
+                                    Предложить исправление
                                 </a>
 
                                 ·

@@ -194,6 +194,8 @@ class ProfileChangeRequest(models.Model):
         CANCELLED = "CANCELLED", _("Отменено")
 
     class ResourceType(models.TextChoices):
+        PERSON = "PERSON", _("Основные сведения о человеке")
+        MEDIA_ASSET = "MEDIA_ASSET", _("Описание фото или документа")
         EMPLOYMENT = "EMPLOYMENT", _("Место работы")
         EDUCATION = "EDUCATION", _("Образование")
         SKILL = "SKILL", _("Навык")

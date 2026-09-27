@@ -19,7 +19,7 @@
 
     {% csrf_token %}
 
-    {{ form.as_p }}
+    {% include 'family/form_fields.html' %}
 
     <button type="submit">
         Создать приглашение

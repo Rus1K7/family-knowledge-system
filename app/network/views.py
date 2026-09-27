@@ -1,3 +1,5 @@
+from django.contrib import messages
+from family.permissions import can_propose_person, can_propose_resource, can_manage_relationships
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 
@@ -18,10 +20,7 @@ def add_help_offer(request, person_id):
         Person,
         id=person_id,
     )
-    if not can_manage_person(
-            request.user,
-            person,
-    ):
+    if not can_propose_person(request.user, person):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -30,7 +29,7 @@ def add_help_offer(request, person_id):
         form = HelpOfferForm(request.POST)
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.HELP_OFFER
                 ),
@@ -45,6 +44,7 @@ def add_help_offer(request, person_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -71,10 +71,7 @@ def edit_help_offer(request, offer_id):
         HelpOffer,
         id=offer_id,
     )
-    if not can_manage_person(
-            request.user,
-            offer.person,
-    ):
+    if not can_propose_resource(request.user, offer.person, "HELP_OFFER", offer.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -102,7 +99,7 @@ def edit_help_offer(request, offer_id):
         )
 
         if form.is_valid():
-            submit_change_request(
+            proposal, created = submit_change_request(
                 resource_type=(
                     ProfileChangeRequest.ResourceType.HELP_OFFER
                 ),
@@ -116,6 +113,7 @@ def edit_help_offer(request, offer_id):
                 },
                 requested_by=request.user,
             )
+            messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
             return redirect(
                 "family:person_detail",
@@ -144,10 +142,7 @@ def delete_help_offer(request, offer_id):
         HelpOffer,
         id=offer_id,
     )
-    if not can_manage_person(
-            request.user,
-            offer.person,
-    ):
+    if not can_propose_resource(request.user, offer.person, "HELP_OFFER", offer.id):
         raise PermissionDenied(
             "Вы не можете изменять этот профиль."
         )
@@ -169,7 +164,7 @@ def delete_help_offer(request, offer_id):
         )
 
     if request.method == "POST":
-        submit_change_request(
+        proposal, created = submit_change_request(
             resource_type=(
                 ProfileChangeRequest.ResourceType.HELP_OFFER
             ),
@@ -177,6 +172,7 @@ def delete_help_offer(request, offer_id):
             action=ProfileChangeRequest.Action.DELETE,
             requested_by=request.user,
         )
+        messages.info(request, "Предложение отправлено на одобрение." if created else "Для этой записи уже есть предложение на рассмотрении. Новые изменения не отправлены.")
 
         return redirect(
             "family:person_detail",

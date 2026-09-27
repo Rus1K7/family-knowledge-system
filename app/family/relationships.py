@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import connection
+from django.db.models import Q
 
 from .models import Relationship
 
@@ -31,3 +32,11 @@ def validate_ancestry(parent_id, child_id, *, exclude_id=None):
         if current not in visited:
             visited.add(current)
             pending.extend(children.get(current, []))
+
+
+def couple_relationships(a, b):
+    """One pair can have legacy spouse/partner edges; keep all its history together."""
+    return Relationship.objects.filter(
+        Q(person_a_id=a, person_b_id=b) | Q(person_a_id=b, person_b_id=a),
+        relationship_type__in=[Relationship.Type.SPOUSE, Relationship.Type.PARTNER],
+    ).order_by("id")

@@ -21,7 +21,10 @@ from django.views.generic import RedirectView
 from .health import health
 
 urlpatterns = [
-    path("", RedirectView.as_view(pattern_name="family:home"), name="home"),
+    path("personal/analytics/", include("product.urls")),
+    path("", RedirectView.as_view(pattern_name="circles:entry"), name="home"),
+    path("personal/", include("circles.urls")),
+    path("personal/assessment/", include("assessments.urls")),
     path("health/", health, name="health"),
     path(
         "admin/",

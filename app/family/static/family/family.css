@@ -355,3 +355,103 @@ summary:focus-visible { outline: 2px solid var(--family-accent); outline-offset:
  .person-card-name { font-size: 22px; }
  .person-card { gap: 18px; }
 }
+
+/* Family groups and partnership history. */
+.tree-filter { display:flex; flex-wrap:wrap; align-items:end; gap:12px; margin-bottom:18px; max-width:680px; }
+.tree-filter > div { flex:1 1 260px; min-width:0; }
+.tree-switch { display:inline-flex; gap:6px; padding:5px; background:var(--family-surface); border:1px solid var(--family-line); border-radius:12px; margin:16px 0 24px; }
+.tree-switch button { border-color:transparent; background:transparent; }
+.tree-switch button[aria-pressed="true"] { background:var(--family-soft); color:var(--family-accent); }
+.tree-toolbar .secondary { flex:1 1 280px; font-size:14px; }
+.tree-page #family-tree { height:65vh !important; min-height:440px; }
+#tree-selection { margin:12px 0; color:var(--family-muted); }
+.family-block-heading { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:12px; margin:16px 0; }
+.family-block-heading h2 { margin:0; }
+.family-block-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; margin-top:24px; }
+.family-block { padding:28px; border:1px solid var(--family-line); border-radius:16px; background:var(--family-surface); scroll-margin-block:24px 100px; }
+.family-block:focus-visible { outline:2px solid var(--family-accent); outline-offset:4px; }
+.family-parents { display:flex; align-items:center; flex-wrap:wrap; gap:12px; font:24px/1.3 Georgia,serif; }
+.family-parents a { text-decoration:none; }
+.family-parents span { color:var(--family-muted); font:18px system-ui; }
+.family-union-status { margin:16px 0; color:var(--family-muted); }
+.union-edit { display:inline-block; font-size:14px; margin:12px 0; }
+.union-history summary,.more-children summary { cursor:pointer; padding:10px 0; min-height:44px; color:var(--family-accent); }
+.family-children { list-style:none; margin:16px 0 0; padding:0 0 0 18px; border-left:2px solid var(--family-line); display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+#tree-person-detail { padding:20px; margin-top:16px; }
+#tree-person-detail h2 { margin-top:0; }
+.relationship-choices { display:grid; gap:16px; margin:24px 0; }
+.relationship-choices>a { display:block; padding:24px; text-decoration:none; border:1px solid var(--family-line); border-radius:16px; }
+.relationship-choices h3 { margin-top:0; }
+.partnership-timeline .card { padding:24px; margin:16px 0; }
+.partnership-timeline h2 { font-size:20px; }
+.family-children li { margin:0; min-width:0; padding:12px; border:1px solid var(--family-line); border-radius:10px; }
+.family-children a { display:block; text-decoration:none; }
+.kinship-label { display:block; color:var(--family-muted); font-size:12px; margin-top:6px; }
+.other-family-links { margin-top:32px; }
+.partnership-timeline .card { margin:16px 0; }
+@media(max-width:850px) { .family-block-grid { grid-template-columns:1fr; } }
+@media(max-width:560px) { .family-block { padding:20px; } .family-children { grid-template-columns:1fr; } .tree-toolbar { gap:8px; } .tree-switch { display:flex; } .tree-switch button { flex:1; padding-inline:8px; } }
+.personal-space-link { white-space:nowrap;font-size:13px;padding:8px 12px;border:1px solid var(--family-line);border-radius:20px;text-decoration:none; }
+@media(max-width:640px) { .personal-space-link { margin-left:auto;padding:7px 10px; } }
+@media(max-width:360px) {
+ .site-header-inner { gap:6px; }
+ .site-brand { font-size:20px; }
+ .personal-space-link { font-size:12px; padding-inline:8px; }
+ .management-menu > summary { gap:4px; padding:4px; }
+}
+
+/* Consistent orientation, form feedback and action hierarchy. */
+.profile-context { color:var(--family-muted); font-size:14px; margin-bottom:8px; }
+.context-links { display:flex; flex-wrap:wrap; gap:12px 24px; margin:-8px 0 24px; }
+.context-links a { display:inline-flex; align-items:center; min-height:44px; }
+.section-context,.form-explanation { padding:16px 20px; border-left:3px solid #b6c7ae; background:var(--family-soft); border-radius:0 10px 10px 0; margin-bottom:24px; }
+.search-summary { color:var(--family-muted); margin:0 0 20px; }
+.form-field { margin-bottom:24px; min-width:0; }
+.form-field > label { display:inline-block; }
+.field-optional { display:inline-block; margin-left:8px; color:var(--family-muted); font-size:12px; }
+.form-check { display:flex !important; align-items:flex-start; gap:10px; cursor:pointer; min-height:44px; }
+.form-check input { flex-shrink:0; margin:2px 0; }
+.form-field.has-error input,.form-field.has-error select,.form-field.has-error textarea { border-color:var(--family-error); }
+.form-error-summary { padding:18px 20px; margin-bottom:24px; border:1px solid #bd8b83; border-radius:12px; background:#fff2ee; }
+.form-error-summary a { color:var(--family-error); }
+.form-error-summary ul:empty { display:none; }
+.form-error-summary ul { margin-bottom:0; }
+.form-actions { display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-top:28px; }
+.form-actions > a { display:inline-flex; align-items:center; min-height:44px; padding:8px; }
+.family-notice { max-width:980px; margin:20px auto; padding:16px 20px; border-radius:12px; border:1px solid var(--family-line); background:var(--family-soft); }
+summary { cursor:pointer; }
+summary:focus-visible { outline:2px solid var(--family-accent); outline-offset:4px; }
+@media(max-width:640px) { .family-notice { margin:16px; }.form-actions > .button-primary { width:100%; } }
+@media(max-width:380px) {
+ .person-card { gap:12px; }
+ .person-card .person-avatar { width:64px; min-height:80px; height:80px; align-self:flex-start; font-size:28px; }
+ .person-card-copy { padding-block:0; }
+ .person-card-name { font-size:20px; }
+ .person-card-action { padding-top:12px; }
+}
+@media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; } }
+
+/* Explicit family confirmations keep long checklists readable on small screens. */
+.kinship-confirmation { margin: 1.5rem 0; padding: 1rem 1.25rem; border: 1px solid var(--border, #d7dcd1); border-radius: 16px; min-width: 0; }
+.kinship-confirmation legend { padding: 0 .4rem; font-weight: 650; max-width: 100%; }
+.kinship-confirmation .form-check { align-items: flex-start; margin: .85rem 0; }
+.kinship-option + .kinship-option { border-top: 1px solid var(--border, #d7dcd1); padding-top: .4rem; }
+.kinship-option .hint { margin: -.35rem 0 .9rem 1.8rem; }
+
+.tree-legend { display:flex; flex-wrap:wrap; gap:8px 22px; font-size:13px; color:var(--family-muted); margin:0 0 14px; }
+.tree-page.tree-expanded { position:fixed; inset:0; z-index:100; margin:0; padding:20px; overflow:auto; background:var(--family-bg, #f4f1e9); max-width:none; }
+.tree-expanded .page-intro,.tree-expanded .tree-filter,.tree-expanded .tree-switch { display:none; }
+.tree-page.tree-expanded #family-tree { height:calc(100dvh - 190px) !important; min-height:360px; }
+.tree-expanded .tree-toolbar { margin-bottom:10px; }
+@media(max-width:640px) { .tree-page.tree-expanded { padding:12px; } .tree-page.tree-expanded #family-tree { height:calc(100dvh - 250px) !important; } }
+
+/* A chosen profile photo retains the private media permission boundary. */
+.profile-avatar { position:relative; overflow:hidden; }
+.profile-photo { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:inherit; }
+.portrait-preview { width:150px; height:150px; object-fit:cover; border-radius:20px; }
+.portrait-choice-intro { margin:24px 0; }
+
+.tree-scope { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:12px 0; }
+.tree-scope button { min-height:42px; padding:8px 14px; border:1px solid #d4dccd; border-radius:10px; background:#fffdf8; color:#365b45; }
+.tree-scope button[aria-pressed=true] { background:#365b45; color:#fffdf8; }
+.tree-scope .secondary { font-size:13px; }

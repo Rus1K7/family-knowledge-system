@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from audit.models import AuditEvent
 from audit.services import log_audit_event
 from family.models import Person
-from heritage.models import Biography, LifeEvent
+from heritage.models import Biography, LifeEvent, MediaAsset
 from network.models import HelpOffer
 
 from .models import (
@@ -17,6 +17,7 @@ from .models import (
 
 
 RESOURCE_TYPES = {
+    MediaAsset: ProfileChangeRequest.ResourceType.MEDIA_ASSET,
     Employment: ProfileChangeRequest.ResourceType.EMPLOYMENT,
     Education: ProfileChangeRequest.ResourceType.EDUCATION,
     Skill: ProfileChangeRequest.ResourceType.SKILL,
@@ -32,6 +33,8 @@ RESOURCE_MODELS = {
 
 
 def get_request_person(change_request):
+    if change_request.resource_type == ProfileChangeRequest.ResourceType.PERSON:
+        return Person.objects.filter(pk=change_request.object_id).first()
     if (
         change_request.action
         == ProfileChangeRequest.Action.CREATE

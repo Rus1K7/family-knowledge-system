@@ -49,6 +49,9 @@ def can_view_resource(
     resource_type,
     object_id,
 ):
+    from .person_visibility import can_view_person
+    if not can_view_person(user, person):
+        return False
     # Администратор MVP видит всё.
     if is_system_admin(user):
         return True
@@ -100,6 +103,9 @@ def can_see_resource_existence(
     resource_type,
     object_id,
 ):
+    from .person_visibility import can_view_person
+    if not can_view_person(user, person):
+        return False
     if can_view_resource(
         user,
         person,

@@ -1,12 +1,25 @@
 from django.urls import path
 
 from . import views
+from .visibility_views import choose_visibility
+from . import visibility_access as presence
 
 
 app_name = "privacy"
 
 
 urlpatterns = [
+    path('visibility/choice/', choose_visibility, name='choose_visibility'),
+    path('visibility/', presence.dashboard, name='visibility_dashboard'),
+    path('visibility/link/create/', presence.create_link, name='visibility_create_link'),
+    path('visibility/exception/', presence.set_exception, name='visibility_set_exception'),
+    path('visibility/link/<uuid:token>/', presence.link_detail, name='visibility_link'),
+    path('visibility/link/<uuid:token>/decide/', presence.decide_link, name='visibility_decide_link'),
+    path('visibility/exception/<int:pk>/', presence.exception_decision, name='visibility_exception'),
+    path('visibility/hide/<uuid:person_id>/', presence.request_hide, name='request_person_hide'),
+    path('visibility/hide-requests/', presence.hide_requests, name='hide_requests'),
+    path('visibility/hide-requests/<uuid:pk>/', presence.review_hide, name='review_person_hide'),
+    path('visibility/restore/<uuid:person_id>/', presence.restore_visibility, name='restore_person_visibility'),
     path(
         "request/<uuid:policy_id>/",
         views.request_access,

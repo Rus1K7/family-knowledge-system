@@ -1,4 +1,4 @@
-{% load static %}
+{% load static presence %}
 <!DOCTYPE html>
 <html lang="ru">
 
@@ -65,7 +65,7 @@
         {% if media.uploaded_by %}
             <p>
                 <strong>Загрузил:</strong>
-                {{ media.uploaded_by }}
+                {% family_actor media.uploaded_by %}
             </p>
         {% endif %}
 

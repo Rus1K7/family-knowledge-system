@@ -49,7 +49,7 @@ urlpatterns = [
         include("privacy.urls"),
     ),
     path(
-        "family/",
+        "",
         include("accounts.urls"),
     ),
     path(

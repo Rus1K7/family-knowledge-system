@@ -257,7 +257,7 @@ class InvitationAuditTests(TestCase):
             1,
         )
 
-    @patch("accounts.views.send_mail")
+    @patch("accounts.invitation_delivery.send_mail")
     def test_create_invitation_queues_email_after_commit(self, mocked_send_mail):
         self.client.force_login(self.admin)
         url = reverse("accounts:create_invitation")

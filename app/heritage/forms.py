@@ -12,6 +12,7 @@ from .models import (
     Verification,
 )
 from .permissions import available_source_documents
+from .source_access import visible_sources
 from .file_validation import UnsafeMediaError, validate_media_content
 
 
@@ -187,9 +188,10 @@ class SourceEditForm(forms.ModelForm):
 class ExistingSourceLinkForm(forms.Form):
     def __init__(self, *args, user=None, person=None, lock_source=False, **kwargs):
         super().__init__(*args, **kwargs)
+        self.user = user
         self.documents = available_source_documents(user, person)
         self.lock_source = lock_source
-        sources = self.fields["source"].queryset.filter(
+        sources = visible_sources(user, self.fields["source"].queryset).filter(
             Q(document__isnull=True) | Q(document__in=self.documents)
         )
         if lock_source:
@@ -198,6 +200,9 @@ class ExistingSourceLinkForm(forms.Form):
 
     def clean_source(self):
         source = self.cleaned_data["source"]
+        # Re-evaluate access after the submitted source was acquired/locked.
+        if not visible_sources(self.user, Source.objects.filter(pk=source.pk)).exists():
+            raise forms.ValidationError("Источник больше недоступен.")
         if self.lock_source and source.document_id is not None:
             # Lock and recheck the document after locking the source: it may
             # have been archived while the submitted form was being validated.

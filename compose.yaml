@@ -43,6 +43,7 @@ services:
 
     environment:
       FKS_LOCAL_TEST: "1"
+      FKS_PERSON_VISIBILITY_ENABLED: "1"
       DJANGO_DEBUG: "True"
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,[::1]
       DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost:8000,http://127.0.0.1:8000

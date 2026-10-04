@@ -4,8 +4,8 @@
 <link rel="stylesheet" href="{% static 'family/vendor/vis-network-10.1.2/vis-network.css' %}">
 <script src="{% static 'family/vendor/vis-network-10.1.2/vis-network.min.js' %}" defer></script>
 <link rel="stylesheet" href="{% static 'family/living-tree.css' %}">
-<script nonce="{{ csp_nonce }}" src="{% static 'family/living-tree.js' %}" defer></script>
-<script nonce="{{ csp_nonce }}" src="{% static 'family/tree.js' %}" defer></script></head>
+<script nonce="{{ csp_nonce }}" src="{% static 'family/living-tree.js' %}?v=20260930-private-node" defer></script>
+<script nonce="{{ csp_nonce }}" src="{% static 'family/tree.js' %}?v=20260930-private-node" defer></script></head>
 <body>{% include 'family/navigation.html' %}
 <main class="family-workspace tree-page" data-focus-person="{{ focus_id }}">
 <div class="page-intro"><div><h1>Дерево семьи</h1><p class="secondary">Все родственники, их истории и связи · {{ person_count }} человек.</p></div><a class="button-secondary" href="{% url 'family:home' %}">Список родственников</a></div>
@@ -31,11 +31,11 @@
 <div class="family-block-heading"><h2 id="family-block-title">Об этой связи</h2><button type="button" id="all-family-blocks">Закрыть сведения</button></div>
 <div class="family-block-grid">
 {% for group in family_groups %}<article class="family-block" id="{{ group.id }}" tabindex="-1" hidden>
-<p class="kinship-label">Ветвь {{ forloop.counter }}</p><div class="family-parents">{% for parent in group.parents %}<a data-tree-return href="{{ parent.url|with_return:request.get_full_path }}">{{ parent.name }}</a>{% if not forloop.last %}<span>и</span>{% endif %}{% endfor %}</div>
+<p class="kinship-label">Ветвь {{ forloop.counter }}</p><div class="family-parents">{% for parent in group.parents %}{% if parent.url %}<a data-tree-return href="{{ parent.url|with_return:request.get_full_path }}">{{ parent.name }}</a>{% else %}<span>{{ parent.name }}</span>{% endif %}{% if not forloop.last %}<span>и</span>{% endif %}{% endfor %}</div>
 <p>{{ group.status }}</p>{% for relationship in group.relationships %}<a data-tree-return href="{{ relationship.url|with_return:request.get_full_path }}">История отношений{% if can_admin %} · исправить{% endif %}</a>{% endfor %}
 <p>Дети: {{ group.children|length }}. Общие дети не означают наличие брака.</p>
-<ul class="family-children">{% for child in group.children|slice:':6' %}<li><a data-tree-return href="{{ child.url|with_return:request.get_full_path }}">{{ child.name }}</a>{% if child.adoptive %}<span class="kinship-label">Приёмная связь</span>{% endif %}</li>{% empty %}<li>Общие дети не указаны.</li>{% endfor %}</ul>
-{% if group.children|length > 6 %}<details class="more-children"><summary>Ещё детей · {{ group.children|length|add:'-6' }}</summary><ul class="family-children">{% for child in group.children|slice:'6:' %}<li><a data-tree-return href="{{ child.url|with_return:request.get_full_path }}">{{ child.name }}</a>{% if child.adoptive %}<span class="kinship-label">Приёмная связь</span>{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+<ul class="family-children">{% for child in group.children|slice:':6' %}<li>{% if child.url %}<a data-tree-return href="{{ child.url|with_return:request.get_full_path }}">{{ child.name }}</a>{% else %}<span>{{ child.name }}</span>{% endif %}{% if child.adoptive %}<span class="kinship-label">Приёмная связь</span>{% endif %}</li>{% empty %}<li>Общие дети не указаны.</li>{% endfor %}</ul>
+{% if group.children|length > 6 %}<details class="more-children"><summary>Ещё детей · {{ group.children|length|add:'-6' }}</summary><ul class="family-children">{% for child in group.children|slice:'6:' %}<li>{% if child.url %}<a data-tree-return href="{{ child.url|with_return:request.get_full_path }}">{{ child.name }}</a>{% else %}<span>{{ child.name }}</span>{% endif %}{% if child.adoptive %}<span class="kinship-label">Приёмная связь</span>{% endif %}</li>{% endfor %}</ul></details>{% endif %}
 </article>{% empty %}<p>Семейные блоки появятся после добавления связей.</p>{% endfor %}</div></section>
 <noscript><p>Для общего графа включите JavaScript. Все люди доступны в <a href="{% url 'family:home' %}">списке родственников</a>.</p></noscript>
 {% if generation_conflicts %}<details><summary>Есть связи, требующие уточнения</summary><p>Обнаружены противоречия поколений. Их может уточнить ответственный за дерево.</p></details>{% endif %}

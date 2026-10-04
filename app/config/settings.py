@@ -42,6 +42,10 @@ SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
+# Privacy is a permanent security boundary, not an optional rollout feature.
+FKS_PERSON_VISIBILITY_ENABLED = True
+if not env_bool('FKS_PERSON_VISIBILITY_ENABLED', default=True):
+    raise ImproperlyConfigured('Нельзя запускать сайт с отключённой защитой видимости профилей.')
 
 if not DEBUG and (
     SECRET_KEY in {"change_me", "dev-only-secret-key-change-later"}
@@ -148,6 +152,8 @@ MIDDLEWARE += [
     'django.middleware.csrf.CsrfViewMiddleware',
     'accounts.middleware.LoginRateLimitMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'heritage.upload_boundary.UploadBoundaryMiddleware',
+    'privacy.visibility_middleware.VisibilityChoiceMiddleware',
     'product.middleware.ProductMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',

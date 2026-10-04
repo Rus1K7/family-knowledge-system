@@ -92,9 +92,11 @@ def get_change_person(change_request):
 
 @login_required
 def my_change_requests(request):
+    from privacy.visibility_guards import filter_changes
     requests = ProfileChangeRequest.objects.filter(
         requested_by=request.user,
     ).order_by("-requested_at", "-id")
+    requests = filter_changes(request.user, requests)
     page = Paginator(requests, 20).get_page(request.GET.get("page"))
     return render(request, "profiles/my_changes.html", {"page_obj": page})
 
@@ -114,6 +116,8 @@ def change_request_list(request):
         )
     )
 
+    from privacy.visibility_guards import filter_changes
+    change_requests = filter_changes(request.user, change_requests)
     items = []
 
     for change_request in change_requests:

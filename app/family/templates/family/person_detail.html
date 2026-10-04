@@ -1,4 +1,4 @@
-{% load static family_navigation %}
+{% load static family_navigation presence %}
 <!DOCTYPE html>
 <html lang="ru">
 
@@ -8,7 +8,7 @@
 
     <title>{{ person }}</title>
 
-    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260924-ux">
+    <link rel="stylesheet" href="{% static 'family/family.css' %}?v=20260927-profile-clean">
 
 </head>
 
@@ -28,26 +28,33 @@
     <div class="profile-identity">
         <span class="person-avatar profile-avatar" aria-hidden="true">{{ person.first_name|first }}{{ person.last_name|first }}{% if portrait_url %}<img class="profile-photo" src="{{ portrait_url }}" alt="">{% endif %}</span>
         <div><p class="profile-context">Семейный профиль</p><h1>{{ person }}</h1>
+        {% if family_navigation.visibility_enabled %}<p><a href="{% url 'privacy:request_person_hide' person.pk %}">Попросить скрыть профиль</a></p>{% endif %}
         {% if person.birth_date %}<p class="secondary">Дата рождения: {{ person.birth_date }}</p>{% endif %}
         {% if not person.is_living %}<p class="secondary">{% if person.death_date %}Дата смерти: {{ person.death_date }}{% else %}Человек умер · дата смерти не указана{% endif %}</p>{% endif %}
         <p class="secondary">{{ person.get_profile_status_display }}</p></div>
     </div>
     <div class="profile-actions">
-        {% if family_navigation.enabled %}<a class="button-secondary" href="{% url 'family:add_relative' person.id %}?mode=existing&amp;return_to={{ request.get_full_path|urlencode }}">{% if family_navigation.can_manage_relationships %}Добавить связь между людьми{% else %}Предложить связь между людьми{% endif %}</a>{% endif %}
-        {% if family_navigation.enabled %}<a class="button-secondary" {% url 'family:propose_person' person.id as edit_name_url %}href="{{ edit_name_url|with_return:request.get_full_path }}">Имя, даты и фото профиля</a>{% endif %}
-        <a class="button-secondary" href="{% url 'family:tree' %}?person={{ person.id }}">Показать семейные связи</a>
-        {% if family_navigation.enabled %}<a class="button-secondary" {% url 'family:add_relative' person.id as journey_url %}href="{{ journey_url|with_return:request.get_full_path }}">{% if family_navigation.can_manage_relationships %}Добавить родственника или связь{% else %}Предложить родственника или связь{% endif %}</a>{% endif %}
+        {% if family_navigation.can_invite_relatives and person.is_living and person.profile_status == 'UNCLAIMED' %}<a class="button-primary" href="{% url 'accounts:invitation_hub' %}?type=family&amp;person={{ person.pk }}&amp;new=1&amp;return_to={{ request.get_full_path|urlencode }}#invitation-new">Пригласить на сайт</a>{% endif %}
+        {% if family_navigation.enabled %}<a class="button-secondary" {% url 'family:propose_person' person.id as edit_name_url %}href="{{ edit_name_url|with_return:request.get_full_path }}">Основные сведения</a>{% endif %}
         {% if can_manage and pending_access_requests_count %}<a class="text-action" href="{% url 'privacy:access_request_list' %}">Запросы доступа · {{ pending_access_requests_count }}</a>{% endif %}
     </div>
 
-<p class="hint">Знаете больше об этом человеке? Предложите дополнения в нужном разделе — они появятся после одобрения.</p>
+{% if not personal_profile %}<p class="hint">Знаете больше об этом человеке? Предложите дополнения в нужном разделе — они появятся после одобрения.</p>{% endif %}
 <div class="profile-tabs" role="tablist" aria-label="Разделы профиля" hidden>
+{% if personal_profile %}<button type="button" role="tab" id="tab-about" aria-controls="panel-about" aria-selected="false" tabindex="-1" data-profile-tab="about">О себе</button>{% endif %}
 <button type="button" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" tabindex="0" data-profile-tab="overview">Семья</button>
 <button type="button" role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" tabindex="-1" data-profile-tab="history">История жизни</button>
 <button type="button" role="tab" id="tab-media" aria-controls="panel-media" aria-selected="false" tabindex="-1" data-profile-tab="media">Фото и документы</button>
 <button type="button" role="tab" id="tab-experience" aria-controls="panel-experience" aria-selected="false" tabindex="-1" data-profile-tab="experience">Опыт и помощь</button>
+{% if personal_profile %}<button type="button" role="tab" id="tab-access" aria-controls="panel-access" aria-selected="false" tabindex="-1" data-profile-tab="access">Доступ</button>{% endif %}
 </div>
+{% if personal_profile %}
+<div id="panel-about" class="profile-panel" role="tabpanel" aria-labelledby="tab-about">{% include 'family/personal_profile.html' %}</div>
+<div id="panel-access" class="profile-panel" role="tabpanel" aria-labelledby="tab-access">{% include 'family/profile_access.html' %}</div>
+{% endif %}
 <div id="panel-overview" class="profile-panel" role="tabpanel" aria-labelledby="tab-overview">
+<div class="profile-actions">        <a class="button-secondary" href="{% url 'family:tree' %}?person={{ person.id }}">Показать семейные связи</a>
+        {% if family_navigation.enabled %}<a class="button-secondary" {% url 'family:add_relative' person.id as journey_url %}href="{{ journey_url|with_return:request.get_full_path }}">{% if family_navigation.can_manage_relationships %}Добавить родственника или связь{% else %}Предложить родственника или связь{% endif %}</a>{% endif %}</div>
     <div class="section">
 
         <h2>
@@ -202,7 +209,7 @@
 
                                 <p class="secondary">
                                     Проверил:
-                                    {{ biography_item.verification.reviewed_by }}
+                                    {% family_actor biography_item.verification.reviewed_by %}
                                 </p>
 
                             {% endif %}
@@ -1168,7 +1175,7 @@
 </div>
 </main>
 
-<script src="{% static 'family/profile.js' %}?v=20260916" defer></script>
+<script src="{% static 'family/profile.js' %}?v=20260927" defer></script>
 </body>
 
 </html>

@@ -1,4 +1,4 @@
-{% load static %}
+{% load static presence %}
 <!DOCTYPE html>
 <html lang="ru">
 
@@ -30,7 +30,7 @@
 
     {% for item in items %}
         {% if item.request.resource_type == "PERSON" %}
-        <article class="request"><h2>Основные сведения · {{ item.person }}</h2><p>Предложил: {{ item.request.requested_by }}</p><a href="{% url 'family:person_proposal' item.request.id %}">Сравнить и рассмотреть изменения</a></article>
+        <article class="request"><h2>Основные сведения · {{ item.person }}</h2><p>Предложил: {% family_actor item.request.requested_by %}</p><a href="{% url 'family:person_proposal' item.request.id %}">Сравнить и рассмотреть изменения</a></article>
         {% else %}
 
         <div class="request">
@@ -48,7 +48,7 @@
                 <br>
 
                 Запросил:
-                {{ item.request.requested_by }}
+                {% family_actor item.request.requested_by %}
 
                 <br>
 

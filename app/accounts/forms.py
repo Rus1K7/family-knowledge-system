@@ -6,7 +6,6 @@ from django.contrib.auth.password_validation import (
     validate_password,
 )
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 
 from family.models import ProfileOwnership
 
@@ -32,6 +31,18 @@ class ActivePasswordResetForm(DjangoPasswordResetForm):
 
 
 class InvitationCreateForm(forms.ModelForm):
+    identity_confirmed = forms.BooleanField(label='Я приглашаю этого родственника с его согласия и указал его почту')
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .relative_invites import eligible_people
+        self.fields['person'].queryset = (eligible_people(user) if user is not None
+                                         else self.fields['person'].queryset.none())
+        self.fields['person'].label = 'Родственник из дерева'
+        self.fields['person'].empty_label = 'Выберите родственника'
+        self.fields['email'].label = 'Почта родственника'
+        self.fields['email'].widget.attrs.update({'autocomplete': 'email', 'inputmode': 'email'})
+
     class Meta:
         model = Invitation
 
@@ -47,9 +58,11 @@ class InvitationCreateForm(forms.ModelForm):
         cleaned_data = super().clean()
 
         person = cleaned_data.get("person")
-        email = cleaned_data.get("email")
-
         if person is None:
+            return cleaned_data
+
+        if not person.is_living or person.profile_status == person.ProfileStatus.ARCHIVED:
+            self.add_error("person", "Нельзя пригласить умершего человека или архивный профиль.")
             return cleaned_data
 
         already_owned = (
@@ -65,31 +78,6 @@ class InvitationCreateForm(forms.ModelForm):
             self.add_error(
                 "person",
                 "У этого человека уже есть аккаунт.",
-            )
-
-        pending_invitation = (
-            Invitation.objects
-            .filter(
-                person=person,
-                status=Invitation.Status.PENDING,
-                expires_at__gt=timezone.now(),
-            )
-            .exists()
-        )
-
-        if pending_invitation:
-            self.add_error(
-                "person",
-                "Для этого человека уже создано активное приглашение.",
-            )
-
-        if (
-            email
-            and User.objects.filter(email__iexact=email).exists()
-        ):
-            self.add_error(
-                "email",
-                "Пользователь с таким email уже существует.",
             )
 
         return cleaned_data

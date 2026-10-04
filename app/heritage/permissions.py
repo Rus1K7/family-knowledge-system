@@ -16,6 +16,9 @@ def available_source_documents(user, person):
 
 
 def can_view_media(user, media_asset):
+    from privacy.person_visibility import can_view_person
+    if not can_view_person(user, media_asset.person):
+        return False
     if media_asset.status == MediaAsset.Status.ARCHIVED:
         return False
 

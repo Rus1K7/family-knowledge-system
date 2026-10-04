@@ -55,6 +55,10 @@ class SelectedUserGrantForm(forms.Form):
                 flat=True,
             )
         )
+        if current_user is not None:
+            from .person_visibility import visible_people
+            family_user_ids = ProfileOwnership.objects.filter(status='CONFIRMED',
+                person__in=visible_people(current_user)).values_list('user_id', flat=True)
 
         queryset = User.objects.filter(
             id__in=family_user_ids,

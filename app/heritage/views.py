@@ -44,6 +44,8 @@ from .models import (
 )
 
 from .permissions import can_verify_heritage, can_view_media
+from .image_delivery import private_image_response
+from .source_access import can_view_source
 
 
 logger = logging.getLogger(__name__)
@@ -73,7 +75,7 @@ def get_heritage_resource(
     )
 
 
-def get_source_person(source):
+def get_source_person(source, user=None):
     for link in source.links.all():
         model = HERITAGE_RESOURCE_MODELS.get(link.resource_type)
         if model is None:
@@ -86,6 +88,10 @@ def get_source_person(source):
             .first()
         )
         if resource is not None:
+            if user is not None:
+                from privacy.permissions import can_view_resource
+                if not can_view_resource(user, resource.person, link.resource_type, resource.pk):
+                    continue
             return resource.person
 
     return None
@@ -568,6 +574,8 @@ def edit_source(request, source_id):
 
     if source.status == Source.Status.ARCHIVED:
         raise Http404
+    if not can_view_source(request.user, source):
+        raise Http404
 
     if not (
         is_system_admin(request.user)
@@ -577,7 +585,7 @@ def edit_source(request, source_id):
             "Только автор источника или администратор может его изменять."
         )
 
-    person = get_source_person(source)
+    person = get_source_person(source, request.user)
     editable_fields = [
         "source_type",
         "title",
@@ -649,6 +657,8 @@ def archive_source(request, source_id):
         Source.objects.select_for_update(),
         id=source_id,
     )
+    if not can_view_source(request.user, source):
+        raise Http404
 
     if not (
         is_system_admin(request.user)
@@ -659,7 +669,7 @@ def archive_source(request, source_id):
         )
 
     if source.status == Source.Status.ARCHIVED:
-        person = get_source_person(source)
+        person = get_source_person(source, request.user)
         if person is not None:
             return redirect(
                 "family:person_detail",
@@ -667,7 +677,7 @@ def archive_source(request, source_id):
             )
         return redirect("family:home")
 
-    person = get_source_person(source)
+    person = get_source_person(source, request.user)
     source.status = Source.Status.ARCHIVED
     source.save(update_fields=["status", "updated_at"])
 
@@ -1117,11 +1127,6 @@ def serve_media_asset(request, media_id):
     ):
         raise Http404
 
-    file_handle = storage.open(
-        media_asset.file.name,
-        "rb",
-    )
-
     log_audit_event(
         actor=request.user,
         action=AuditEvent.Action.VIEW_MEDIA,
@@ -1135,8 +1140,11 @@ def serve_media_asset(request, media_id):
         == MediaAsset.MediaType.DOCUMENT
     )
 
+    if media_asset.media_type == MediaAsset.MediaType.PHOTO:
+        return private_image_response(media_asset.file)
+
     return FileResponse(
-        file_handle,
+        storage.open(media_asset.file.name, 'rb'),
         as_attachment=as_attachment,
         filename=(
             media_asset.original_filename
@@ -1167,6 +1175,8 @@ def media_moderation_list(request):
         .order_by("created_at")
     )
 
+    from privacy.person_visibility import visible_people
+    pending_media = pending_media.filter(person__in=visible_people(request.user))
     return render(
         request,
         "heritage/media_moderation_list.html",

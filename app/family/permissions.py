@@ -21,6 +21,13 @@ def is_system_admin(user):
     )
 
 
+def can_invite_relatives(user):
+    """Family invitations do not grant the separate right to invite friends."""
+    return has_active_account(user) and user.system_role in {
+        'FAMILY_MEMBER', 'FAMILY_HISTORIAN', 'SYSTEM_ADMIN',
+    }
+
+
 def user_owns_person(user, person):
     if not has_active_account(user):
         return False
@@ -37,6 +44,8 @@ def user_owns_person(user, person):
 
 def is_family_member(user):
     if not has_active_account(user):
+        return False
+    if user.system_role == 'FRIEND':
         return False
 
     if user.has_perm("family.manage_family_relationships"):
@@ -59,6 +68,9 @@ def can_manage_relationships(user):
 
 def can_propose_person(user, person):
     """Contribution permission does not grant ownership or access to private material."""
+    from privacy.person_visibility import can_view_person
+    if not can_view_person(user, person):
+        return False
     return is_system_admin(user) or is_family_member(user)
 
 

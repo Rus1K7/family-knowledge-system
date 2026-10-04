@@ -168,7 +168,8 @@ def family_home(request):
     if not (is_system_admin(request.user) or is_family_member(request.user)):
         raise PermissionDenied("Доступ к семейному пространству не подтверждён.")
     query = request.GET.get("q", "").strip()[:150]
-    people = Person.objects.order_by("last_name", "first_name", "id")
+    from privacy.person_visibility import visible_people
+    people = visible_people(request.user, graph=True).order_by("last_name", "first_name", "id")
     for word in query.split():
         people = people.filter(
             Q(first_name__icontains=word) | Q(last_name__icontains=word)
@@ -192,6 +193,8 @@ def family_tree(request):
     persons = list(Person.objects.select_related("portrait", "portrait__person").order_by("last_name", "first_name", "id"))
     relationships = list(Relationship.objects.filter(status=Relationship.Status.VERIFIED)
         .select_related("person_a", "person_b").prefetch_related("periods"))
+    from privacy.person_visibility import private_tree
+    persons, relationships = private_tree(request.user, persons, relationships)
     levels, conflicts = build_generation_levels(persons, relationships)
     groups, extra_links = build_family_groups(persons, relationships)
     focus_id = request.GET.get("person", "")
@@ -204,12 +207,17 @@ def family_tree(request):
     focused_view = bool(focused_person and request.GET.get('scope') == 'person')
     branches = arrange_from_person(nodes, connectors, extra_links, root_id) if focused_view else []
     person_by_id = {str(p.pk): p for p in persons}
-    kinship = kinship_labels(persons, relationships)
+    kinship = kinship_labels(persons, [r for r in relationships if not getattr(r, '_visibility_hidden', False)])
     for node in nodes:
         if node["kind"] == "family":
             node["title"] = node["label"]
             node["label"] = ""
         elif node["kind"] == "person":
+            if getattr(person_by_id[node['id']], '_visibility_hidden', False):
+                # `hidden` is a vis-network rendering option, not a privacy flag.
+                # The sanitized boundary must remain drawable, without identity/actions.
+                node.update(privacy_hidden=True, initials='?', relatives={}, life_label='', portrait_url='')
+                continue
             node["add_url"] = reverse("family:add_relative", args=[node["id"]])
             node["propose_url"] = reverse("family:propose_person", args=[node["id"]])
             person = person_by_id[node["id"]]
@@ -223,7 +231,8 @@ def family_tree(request):
                                     (f"{born} · память" if born and not person.is_living else born)))
     return render(request, "family/home.html", {
         "nodes": nodes, "edges": edges, "connectors": connectors,
-        "family_groups": groups, "extra_links": extra_links, "people": persons,
+        "family_groups": groups, "extra_links": extra_links,
+        "people": [p for p in persons if not getattr(p, '_visibility_hidden', False)],
         "focus": focus, "focus_id": str(focus.pk) if focus else "",
         "generation_conflicts": conflicts, "person_count": len(persons),
         "can_admin": can_manage_relationships(request.user),
@@ -234,6 +243,8 @@ def family_tree(request):
 @login_required
 @never_cache
 def person_detail(request, person_id):
+    from privacy.person_visibility import require_person, visible_relations
+    require_person(request.user, person_id)
     if not (
         is_system_admin(request.user)
         or is_family_member(request.user)
@@ -251,7 +262,7 @@ def person_detail(request, person_id):
     )
 
     relationships_from = list(
-        Relationship.objects
+        visible_relations(request.user, Relationship.objects.all())
         .filter(
             person_a=person,
             status=Relationship.Status.VERIFIED,
@@ -260,7 +271,7 @@ def person_detail(request, person_id):
     )
 
     relationships_to = list(
-        Relationship.objects
+        visible_relations(request.user, Relationship.objects.all())
         .filter(
             person_b=person,
             status=Relationship.Status.VERIFIED,
@@ -801,13 +812,25 @@ def person_detail(request, person_id):
             )
 
 
+    from circles.identity import own_person
+    from circles.models import PersonalProfile
+    from circles.presentation import profile_data, own_links
+    own = own_person(request.user)
+    personal_context = {}
+    if own and own.pk == person.pk:
+        identity = PersonalProfile.objects.filter(user=request.user).first()
+        personal_context = {
+            **profile_data(request.user, viewer=request.user),
+            'links': own_links(request.user),
+            'identity_unified': bool(identity and identity.unified_identity),
+        }
     return render(
         request,
         "family/person_detail.html",
         {
             **back_context(request, reverse("family:home")),
             "person": person,
-
+            'personal_profile': personal_context,
             "parents": parents,
             "portrait_url": portrait_url(request.user, person),
             "children": children,
@@ -834,23 +857,8 @@ def person_detail(request, person_id):
 
 @login_required
 def my_profile(request):
-    ownership = (
-        ProfileOwnership.objects
-        .filter(
-            user=request.user,
-            status=ProfileOwnership.Status.CONFIRMED,
-        )
-        .select_related("person")
-        .first()
-    )
-
-    if ownership is None:
-        return render(
-            request,
-            "family/no_profile.html",
-        )
-
-    return redirect(
-        "family:person_detail",
-        person_id=ownership.person.id,
-    )
+    from circles.identity import own_person
+    person = own_person(request.user)
+    if person:
+        return redirect('family:person_detail', person_id=person.pk)
+    return redirect('circles:profile')

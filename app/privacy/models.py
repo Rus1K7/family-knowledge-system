@@ -7,6 +7,82 @@ from django.utils.translation import gettext_lazy as _
 from family.models import Person
 
 
+class PersonVisibility(models.Model):
+    class Choice(models.TextChoices):
+        UNDECIDED = 'UNDECIDED', 'Выбор не сделан'
+        OPEN = 'OPEN', 'Разрешён показ родственникам'
+        HIDDEN = 'HIDDEN', 'Скрыт от родственников'
+
+    person = models.OneToOneField(Person, on_delete=models.CASCADE, primary_key=True)
+    choice = models.CharField(max_length=12, choices=Choice.choices, default=Choice.UNDECIDED)
+    chosen_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                  on_delete=models.SET_NULL, related_name='+')
+    chosen_at = models.DateTimeField(null=True, blank=True)
+    forced_hidden = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class PersonVisibilityException(models.Model):
+    class Decision(models.TextChoices):
+        ALLOW = 'ALLOW', 'Разрешить'
+        DENY = 'DENY', 'Скрыть'
+
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='+')
+    viewer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    granted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    decision = models.CharField(max_length=5, choices=Decision.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['person', 'viewer'], name='unique_person_visibility_viewer')]
+
+
+class VisibilityLink(models.Model):
+    class Kind(models.TextChoices):
+        OFFER = 'OFFER', 'Предложить доступ к моему профилю'
+        REQUEST = 'REQUEST', 'Попросить доступ к профилю'
+
+    class Status(models.TextChoices):
+        WAITING = 'WAITING', 'Ожидает перехода'
+        CLAIMED = 'CLAIMED', 'Ожидает подтверждения владельца'
+        APPROVED = 'APPROVED', 'Доступ разрешён'
+        REJECTED = 'REJECTED', 'Отклонено'
+        REVOKED = 'REVOKED', 'Отозвано'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    person = models.ForeignKey(Person, null=True, blank=True, on_delete=models.CASCADE, related_name='+')
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                 on_delete=models.SET_NULL, related_name='+')
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.WAITING)
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+
+class PersonHideRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Ожидает решения'
+        APPROVED = 'APPROVED', 'Одобрено'
+        REJECTED = 'REJECTED', 'Отклонено'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='+')
+    requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='+')
+    reason = models.TextField(max_length=2000)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
+    reviewer = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                on_delete=models.PROTECT, related_name='+')
+    review_reason = models.TextField(max_length=2000, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['person', 'requester'],
+            condition=models.Q(status='PENDING'), name='unique_pending_person_hide')]
+
+
 class PrivacyPolicy(models.Model):
     class ResourceType(models.TextChoices):
         EMPLOYMENT = "EMPLOYMENT", _("Место работы")

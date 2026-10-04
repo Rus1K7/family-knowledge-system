@@ -17,7 +17,7 @@ class RelativeProposalForm(forms.ModelForm):
                    "death_date": forms.DateInput(attrs={"type": "date"}),
                    "biography": forms.Textarea(attrs={"rows": 5})}
 
-    def __init__(self, *args, mode="new", anchor=None, **kwargs):
+    def __init__(self, *args, mode="new", anchor=None, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.mode, self.anchor = mode, anchor
         self.fields["relation_type"].label = "Кем этот человек приходится выбранному родственнику"
@@ -26,6 +26,9 @@ class RelativeProposalForm(forms.ModelForm):
                          "death_date", "biography", "invitation_email"):
                 self.fields.pop(name)
             people = Person.objects.exclude(profile_status=Person.ProfileStatus.ARCHIVED)
+            if user is not None:
+                from privacy.person_visibility import visible_people
+                people = visible_people(user, people)
             if anchor:
                 people = people.exclude(pk=anchor.pk)
             self.fields["existing_person"].queryset = people.order_by("last_name", "first_name")
@@ -62,25 +65,8 @@ class RelativeProposalForm(forms.ModelForm):
 
 class RelativeReviewForm(forms.Form):
     decision = forms.ChoiceField(choices=[("approve", "Одобрить"), ("reject", "Отклонить")])
-    email = forms.EmailField(label="Адрес приглашения", required=False)
-    send_invitation = forms.BooleanField(label="Отправить приглашение после одобрения", required=False)
     comment = forms.CharField(label="Комментарий к решению", required=False, max_length=2000,
                               widget=forms.Textarea(attrs={"rows": 3}))
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.is_bound and (self.data.get("decision") == "reject" or
-                not self.fields["send_invitation"].to_python(self.data.get("send_invitation"))):
-            # An unused invitation address must not block the family decision.
-            self.data = self.data.copy()
-            self.data["email"] = ""
-            self.data["send_invitation"] = ""
-
-    def clean(self):
-        data = super().clean()
-        if data.get("decision") == "approve" and data.get("send_invitation") and not data.get("email"):
-            self.add_error("email", "Укажите адрес для приглашения или снимите отметку отправки.")
-        return data
 
 
 class AddRelativeForm(forms.Form):
